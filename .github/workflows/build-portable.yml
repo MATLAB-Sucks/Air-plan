@@ -1,0 +1,79 @@
+# Builds the Windows and Intel-macOS apps, runs the tests and the packaged
+# self-test on each, and assembles one downloadable USB folder.
+# Trigger: Actions tab > "Build portable USB edition" > Run workflow (or push a tag v*).
+name: Build portable USB edition
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel        # last Intel runner (supported until Aug 2027); app also runs on Apple Silicon via Rosetta
+            lock: requirements/lock-macos-intel-py311.txt
+            artifact: mac
+          - os: windows-latest
+            lock: requirements/lock-windows-x64-py311.txt
+            artifact: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (wheels only)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary :all: -r ${{ matrix.lock }}
+          python -m pip install --no-deps -e .
+          python -m pip install "pytest>=8" "pyinstaller==6.16.0"
+      - name: Tests
+        run: python -m pytest -q
+      - name: Build application
+        run: pyinstaller --noconfirm packaging/aircraft_foundry.spec
+      - name: Self-test packaged app (macOS)
+        if: runner.os == 'macOS'
+        run: '"dist/Aircraft Foundry.app/Contents/MacOS/AircraftFoundry" --self-test'
+      - name: Self-test packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # windowed exe has no console: the self-test writes its result to a log file
+          $p = Start-Process -FilePath dist\AircraftFoundry\AircraftFoundry.exe -ArgumentList "--self-test","--self-test-log","selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Archive macOS app (keeps symlinks and permissions)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "dist/Aircraft Foundry.app" mac-app.zip
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with: { name: mac, path: mac-app.zip }
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with: { name: windows, path: dist/AircraftFoundry }
+
+  assemble:
+    needs: build
+    runs-on: macos-15-intel   # macOS so the .app keeps its symlinks/permissions when re-zipped
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - uses: actions/download-artifact@v4
+        with: { name: mac, path: art-mac }
+      - uses: actions/download-artifact@v4
+        with: { name: windows, path: art-win/AircraftFoundry }
+      - name: Assemble USB layout
+        run: |
+          ditto -x -k art-mac/mac-app.zip art-mac/
+          python packaging/assemble_usb.py --windows art-win/AircraftFoundry --mac "art-mac/Aircraft Foundry.app" --out USB
+          ditto -c -k --keepParent USB AircraftFoundry-Portable.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AircraftFoundry-Portable
+          path: AircraftFoundry-Portable.zip

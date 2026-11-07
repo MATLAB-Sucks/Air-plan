@@ -1,0 +1,16 @@
+{
+  "name": "Long-haul four-engine",
+  "payload_kg": 45000,
+  "range_km": 11000,
+  "cruise_mach": 0.84,
+  "cruise_altitude_m": 11500,
+  "takeoff_field_m": 3000,
+  "max_approach_speed_ms": 75,
+  "max_span_m": 65,
+  "propulsion": "auto",
+  "engines": "4",
+  "objective": "min_mtow",
+  "passenger_mass_kg": 100.0,
+  "seat_pitch_m": 0.79,
+  "notes": ""
+}

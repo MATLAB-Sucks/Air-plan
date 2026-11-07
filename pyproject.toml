@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aircraft-foundry"
+version = "0.5.0"
+description = "Procedural conceptual aircraft design: mission-driven generation, evaluation, evolution, structure and CAD export"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "Proprietary" }
+# Exact pins: this set is verified to install from pre-built wheels on Intel
+# macOS (x86_64, macOS 12+), Apple Silicon and Linux with Python 3.11.
+# Loosening them can pull in packages with no Intel macOS wheel
+# (numba >= 0.63, llvmlite >= 0.46, nlopt >= 2.10) - see README.
+dependencies = [
+    "numpy==2.3.5",
+    "scipy==1.16.3",
+    "vtk==9.6.2",
+    "PySide6-Essentials==6.9.3",
+]
+
+[project.optional-dependencies]
+cad = [
+    "cadquery==2.8.0",
+    "cadquery-ocp==7.9.3.1.1",
+    "numba==0.62.1",
+    "llvmlite==0.45.1",
+    "nlopt==2.9.1",
+    "casadi==3.7.2",
+    "multimethod==1.12",
+]
+dev = ["pytest>=8"]
+package = ["pyinstaller==6.16.0"]
+
+[project.scripts]
+aircraft-foundry-cli = "aircraft_foundry.cli:main"
+
+[project.gui-scripts]
+aircraft-foundry = "aircraft_foundry.app.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["error::DeprecationWarning:aircraft_foundry.*"]

@@ -1,0 +1,8 @@
+-r base.in
+cadquery==2.8.0
+cadquery-ocp==7.9.3.1.1   # requires vtk==9.6.2 exactly (shared with the renderer)
+numba==0.62.1             # last release with Intel macOS wheels
+llvmlite==0.45.1          # last release with Intel macOS wheels
+nlopt==2.9.1              # 2.10+ has no Intel macOS wheel
+casadi==3.7.2
+multimethod==1.12

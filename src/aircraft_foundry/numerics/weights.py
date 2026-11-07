@@ -1,0 +1,88 @@
+"""Statistical group weights (Raymer, cargo/transport equations 15.25-15.50).
+
+Raymer's equations are in imperial units; every function here takes and
+returns SI (kg, m, m^2, m/s) and converts internally.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+KG2LB, LB2KG = 2.20462, 0.453592
+M2FT, M22FT2 = 3.28084, 10.7639
+M2IN = 39.3701
+MS2KT = 1.94384
+
+
+def wing_weight(wdg_kg: float, nz: float, area: float, ar: float, tc: float, taper: float,
+                sweep_qc: float, control_area: float | None = None) -> float:
+    """``control_area``: wing-mounted control surfaces incl. high-lift devices (m^2)."""
+    scs = (0.25 * area if control_area is None else max(control_area, 0.02 * area)) * M22FT2
+    lb = (0.0051 * (wdg_kg * KG2LB * nz) ** 0.557 * (area * M22FT2) ** 0.649 * ar**0.5 * tc**-0.4
+          * (1 + taper) ** 0.1 / np.cos(sweep_qc) * scs**0.1)
+    return lb * LB2KG
+
+
+def htail_weight(wdg_kg: float, nz: float, area: float, arm: float, ar: float, sweep_qc: float,
+                 fuselage_width_ratio: float = 0.1) -> float:
+    lt = max(arm, 0.5) * M2FT
+    lb = (0.0379 * (1 + fuselage_width_ratio) ** -0.25 * (wdg_kg * KG2LB) ** 0.639 * nz**0.1
+          * (area * M22FT2) ** 0.75 / lt * (0.3 * lt) ** 0.704 / np.cos(sweep_qc) * ar**0.166 * 1.15**0.1)
+    return lb * LB2KG
+
+
+def vtail_weight(wdg_kg: float, nz: float, area: float, arm: float, ar: float, sweep_qc: float, tc: float,
+                 t_tail: bool) -> float:
+    tc = max(tc, 0.08)  # Raymer's transport fit is not valid for very thin (supersonic) sections
+    lt = max(arm, 0.5) * M2FT
+    lb = (0.0026 * (1 + (1.0 if t_tail else 0.0)) ** 0.225 * (wdg_kg * KG2LB) ** 0.556 * nz**0.536
+          * lt**-0.5 * (area * M22FT2) ** 0.5 * lt**0.875 / np.cos(sweep_qc) * ar**0.35 * tc**-0.5)
+    return lb * LB2KG
+
+
+def fuselage_weight(wdg_kg: float, nz: float, length: float, diameter: float, wetted: float, span: float,
+                    taper: float, sweep_qc: float, fuselage_gear: bool) -> float:
+    kws = 0.75 * ((1 + 2 * taper) / (1 + taper)) * (span * np.tan(sweep_qc) / length)
+    kws = max(kws, -0.9)  # forward-swept quarter-chord lines would make (1 + Kws) negative
+    lb = (0.3280 * 1.06 * (1.12 if fuselage_gear else 1.0) * (wdg_kg * KG2LB * nz) ** 0.5
+          * (length * M2FT) ** 0.25 * (wetted * M22FT2) ** 0.302 * (1 + kws) ** 0.04
+          * (length / diameter) ** 0.10)
+    return lb * LB2KG
+
+
+def main_gear_weight(wl_kg: float, strut_m: float, wheels: int, stall_ms: float) -> float:
+    lb = (0.0106 * 1.0 * (wl_kg * KG2LB) ** 0.888 * 4.5**0.25 * (max(strut_m, 0.3) * M2IN) ** 0.4
+          * max(2 * wheels, 1) ** 0.321 * 2**-0.5 * (stall_ms * MS2KT) ** 0.1)
+    return lb * LB2KG
+
+
+def nose_gear_weight(wl_kg: float, strut_m: float, wheels: int) -> float:
+    lb = 0.032 * (wl_kg * KG2LB) ** 0.646 * 4.5**0.2 * (max(strut_m, 0.3) * M2IN) ** 0.5 * wheels**0.45
+    return lb * LB2KG
+
+
+def engine_dry_weight(thrust_kn: float, propulsion: str) -> float:
+    if propulsion == "turboprop":
+        return 18.0 * thrust_kn
+    # Power-law fit through high-bypass turbofans from ~120 kN (2.3 t) to
+    # ~510 kN (8.3 t).  Raymer's eq. 10.4 (exponent 1.1) overestimates large engines.
+    return 2300.0 * (thrust_kn / 120.0) ** 0.88
+
+
+def furnishings_and_operator_items(passengers: int) -> float:
+    """Seats, galleys, lavatories, emergency & oxygen equipment, operator items.
+
+    Not covered by Raymer's 'all-else empty' fraction; ~42 kg per seat (plus the
+    separately modelled ~1.5 kg/m^2 cabin acoustic insulation) reproduces published
+    operating-empty weights of narrow-body transports.
+    """
+    return 42.0 * passengers
+
+
+def systems_and_equipment(w0_kg: float) -> float:
+    """Systems, avionics, hydraulics, electrics, APU, air-conditioning.
+
+    Raymer's flat 0.17 W0 'all-else' fraction fits narrow-bodies but
+    overestimates wide-bodies by ~2x; this power law gives ~0.17 W0 at 78 t
+    and ~0.12 W0 at 350 t, consistent with published group weights.
+    """
+    return 13300.0 * (w0_kg / 78000.0) ** 0.75

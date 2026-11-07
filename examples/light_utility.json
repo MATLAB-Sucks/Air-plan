@@ -1,0 +1,16 @@
+{
+  "name": "Light utility",
+  "payload_kg": 900,
+  "range_km": 1200,
+  "cruise_mach": 0.45,
+  "cruise_altitude_m": 6000,
+  "takeoff_field_m": 900,
+  "max_approach_speed_ms": 50,
+  "max_span_m": 18,
+  "propulsion": "auto",
+  "engines": "auto",
+  "objective": "min_mtow",
+  "passenger_mass_kg": 100.0,
+  "seat_pitch_m": 0.79,
+  "notes": ""
+}

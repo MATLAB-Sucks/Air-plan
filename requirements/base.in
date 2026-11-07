@@ -1,0 +1,6 @@
+# Direct dependencies.  Pins chosen so that every package installs from a
+# pre-built wheel on Intel macOS (x86_64) - see README "Dependency notes".
+numpy==2.3.5
+scipy==1.16.3
+vtk==9.6.2
+PySide6-Essentials==6.9.3

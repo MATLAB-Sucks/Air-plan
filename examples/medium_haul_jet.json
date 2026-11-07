@@ -1,0 +1,16 @@
+{
+  "name": "Short-medium haul transport",
+  "payload_kg": 16000.0,
+  "range_km": 4500.0,
+  "cruise_mach": 0.78,
+  "cruise_altitude_m": 11000.0,
+  "takeoff_field_m": 2200.0,
+  "max_approach_speed_ms": 72.0,
+  "max_span_m": 36.0,
+  "propulsion": "auto",
+  "engines": "auto",
+  "objective": "min_mtow",
+  "passenger_mass_kg": 100.0,
+  "seat_pitch_m": 0.79,
+  "notes": ""
+}

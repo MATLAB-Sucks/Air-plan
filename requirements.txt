@@ -1,0 +1,4 @@
+# Convenience file: full application including STEP export.
+# For a reproducible install prefer the platform lock in requirements/.
+-r requirements/cad.in
+pytest>=8

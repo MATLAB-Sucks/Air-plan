@@ -1,0 +1,16 @@
+{
+  "name": "Regional turboprop",
+  "payload_kg": 7000,
+  "range_km": 1500,
+  "cruise_mach": 0.55,
+  "cruise_altitude_m": 7000,
+  "takeoff_field_m": 1400,
+  "max_approach_speed_ms": 62,
+  "max_span_m": 30,
+  "propulsion": "auto",
+  "engines": "auto",
+  "objective": "min_mtow",
+  "passenger_mass_kg": 100.0,
+  "seat_pitch_m": 0.79,
+  "notes": ""
+}
