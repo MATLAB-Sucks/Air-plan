@@ -106,7 +106,7 @@ class AircraftDesign:
         return [c.summary() for c in self.components.values()]
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "name": self.name, "parameters": self.params.to_dict()}
+        return {"id": self.id, "name": self.name, "parameters": self.params.to_saved_dict()}
 
     @classmethod
     def from_dict(cls, d: dict) -> "AircraftDesign":

@@ -15,6 +15,17 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.9:**
+
+* **Check for updates:** one click installs new releases from GitHub, verified
+  by checksum. Your saved planes are kept and the library is backed up first.
+* **Backwards compatibility:** designs saved by older versions still open and
+  analyse.
+* **Game controllers:** Xbox, PlayStation and Switch controllers (Pro and
+  Joy-Cons) fly the simulator, with rumble, and navigate the app.
+
+See [docs/UPDATES_AND_CONTROLLERS.md](docs/UPDATES_AND_CONTROLLERS.md).
+
 **New in 0.8:**
 
 * **Workspace:** two side panels. On the left, the generated aircraft. On
@@ -126,7 +137,7 @@ python -m aircraft_foundry
 To check the install:
 
 ```bash
-pytest                                   # 168 tests; the GUI test is skipped unless AF_GUI_TESTS=1
+pytest                                   # 186 tests; the GUI test is skipped unless AF_GUI_TESTS=1
 AF_GUI_TESTS=1 pytest tests/test_gui.py  # drives the real window: generate, edit, pick, evolve, save
 python -m aircraft_foundry --self-test   # opens, renders, evaluates, then exits
 ```

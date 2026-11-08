@@ -57,6 +57,10 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
             for _ in range(1000):  # 5 s of simulated flight
                 sim.step(1 / 200)
             say(f"SELF-TEST SIM: trimmed={trimmed}, altitude after 5 s {sim.telemetry()['altitude']:.0f} m")
+            from ..input.controller import make_backend
+            pads = make_backend()
+            say(f"SELF-TEST PADS: controller support {'available' if pads.available else 'unavailable'}"
+                f"{'' if pads.available else ' (' + pads.error + ')'}; {len(pads.poll())} connected")
             n_lib = window.library.count()
             say(f"SELF-TEST OK: {len(d.components)} components, {stats.added} actors, "
                   f"MTOW {ev.metrics.get('mtow_kg', 0):,.0f} kg, wing box root cover "

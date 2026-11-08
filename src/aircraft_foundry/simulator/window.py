@@ -111,6 +111,8 @@ class SimulatorWindow(QMainWindow):
         self.ap = Autopilot(self.sim, self.vref_for_mass(), climb_speed=1.6 * self.vref_for_mass(),
                             cruise_speed=evaluation.metrics.get("cruise_speed_ms", 200.0))
         self.debris: list[dict] = []
+        self.pads = None  # ControllerManager (set by the main window) for game-controller flying
+        self._rumble_state = {"stalled": False, "over": False, "touch": None, "lost": False}
         self.log: list[dict] = []
         self._log_t = -1.0
         self.wp_add_mode = False
@@ -520,11 +522,35 @@ class SimulatorWindow(QMainWindow):
             return float(np.clip(current + np.clip(target - current, -r * dt, r * dt), -1, 1))
 
         flight_keys = {Qt.Key_Down, Qt.Key_Up, Qt.Key_Left, Qt.Key_Right, Qt.Key_Q, Qt.Key_E, Qt.Key_W, Qt.Key_S}
+        pad = self.pads.primary if self.pads is not None else None
         if self.ap.engaged:
             if held & flight_keys:
                 self.ap.disengage("manual control input")  # like a real autopilot: any input takes over
+            elif pad is not None:
+                import dataclasses
+                from ..input.controller import flight_inputs
+                if "manual" in flight_inputs(pad, self.pads.settings, dataclasses.replace(c), 0.0):
+                    self.ap.disengage("controller input")
+                else:
+                    return
             else:
                 return
+        if pad is not None and not (held & flight_keys):
+            from ..input.controller import flight_inputs
+            for action in flight_inputs(pad, self.pads.settings, c, dt):
+                if action == "flaps":
+                    self._key_pressed(Qt.Key_F)
+                elif action == "gear":
+                    self._key_pressed(Qt.Key_G)
+                elif action == "camera":
+                    self._key_pressed(Qt.Key_C)
+                elif action == "sas":
+                    self._key_pressed(Qt.Key_A)
+                elif action == "pause":
+                    self._key_pressed(Qt.Key_P)
+                elif action == "restart":
+                    self._key_pressed(Qt.Key_R)
+            return
         c.elevator = axis(Qt.Key_Down, Qt.Key_Up, c.elevator)
         c.aileron = axis(Qt.Key_Right, Qt.Key_Left, c.aileron)
         c.rudder = axis(Qt.Key_E, Qt.Key_Q, c.rudder)
@@ -544,6 +570,28 @@ class SimulatorWindow(QMainWindow):
             if self.sim.crashed:
                 break
 
+    def _rumble_events(self):
+        """Controller rumble on stall onset, overstress, touchdown (by sink rate) and loss of the aircraft."""
+        if self.pads is None or self.pads.primary is None:
+            return
+        t, r = self.sim.telemetry(), self._rumble_state
+        if t["stalled"] and not r["stalled"]:
+            self.pads.rumble(0.35, 0.55, 300)
+        r["stalled"] = bool(t["stalled"])
+        over = t["stress"] > 1 / max(self.model.n_ultimate / self.model.n_limit, 1.0)
+        if over and not r["over"]:
+            self.pads.rumble(0.7, 0.9, 350)
+        r["over"] = over
+        td = self.sim.touchdown
+        if td is not None and td is not r["touch"]:
+            k = min(max(td["sink_ms"] / 3.0, 0.15), 1.0)
+            self.pads.rumble(k, 0.6 * k, 250)
+        r["touch"] = td
+        lost = bool(self.sim.crashed or self.sim.failure)
+        if lost and not r["lost"]:
+            self.pads.rumble(1.0, 1.0, 800)
+        r["lost"] = lost
+
     def _tick(self):
         now = time.perf_counter()
         dt = 0.0 if self._last_wall is None else min(now - self._last_wall, 0.05)
@@ -551,6 +599,7 @@ class SimulatorWindow(QMainWindow):
         self._update_controls(dt)
         if not self.paused and not self.sim.crashed:
             self.advance(dt * self.time_scale)
+        self._rumble_events()
         self.render_frame()
 
     # ------------------------------------------------------------ drawing

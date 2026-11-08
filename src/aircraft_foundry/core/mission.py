@@ -114,6 +114,10 @@ class MissionRequirements:
         return self.cruise_mach > 1.0
 
     def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_saved_dict(self) -> dict:
+        """For files and the library: the fields plus the format version (see core.compat)."""
         from .compat import MISSION_FORMAT
         return {**asdict(self), "_format_version": MISSION_FORMAT}
 
@@ -124,7 +128,7 @@ class MissionRequirements:
         return upgrade_mission(d, report)
 
     def save(self, path: str | Path) -> None:
-        Path(path).write_text(json.dumps(self.to_dict(), indent=2))
+        Path(path).write_text(json.dumps(self.to_saved_dict(), indent=2))
 
     @classmethod
     def load(cls, path: str | Path) -> "MissionRequirements":

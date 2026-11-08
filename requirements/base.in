@@ -4,3 +4,5 @@ numpy==2.3.5
 scipy==1.16.3
 vtk==9.6.2
 PySide6-Essentials==6.9.3
+# game controllers (SDL2: Xbox, PlayStation, Switch Pro / Joy-Con) - optional at runtime
+pygame==2.6.1

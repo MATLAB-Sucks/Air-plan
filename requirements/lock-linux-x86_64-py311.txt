@@ -139,3 +139,4 @@ wslink==2.6.0
     #   trame-server
 yarl==1.25.1
     # via aiohttp
+pygame==2.6.1

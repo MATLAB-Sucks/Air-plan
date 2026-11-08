@@ -19,6 +19,8 @@ except Exception:
 hidden = (collect_submodules("aircraft_foundry")
           + collect_submodules("vtkmodules")  # VTK registers backends via module import side effects
           + ["PySide6.QtOpenGL", "PySide6.QtOpenGLWidgets"])
+# game controllers (SDL2 via pygame)
+hidden += ["pygame", "pygame._sdl2", "pygame._sdl2.controller", "aircraft_foundry.input.controller"]
 datas, binaries = [], []
 if WITH_CAD:
     hidden += collect_submodules("cadquery") + collect_submodules("OCP")
@@ -45,7 +47,7 @@ if sys.platform == "darwin":
         name="Aircraft Foundry.app",
         bundle_identifier="com.aircraftfoundry.app",
         info_plist={
-            "CFBundleShortVersionString": "0.8.0",
+            "CFBundleShortVersionString": "0.9.0",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
             "CFBundleDocumentTypes": [{"CFBundleTypeName": "Aircraft Foundry Project",

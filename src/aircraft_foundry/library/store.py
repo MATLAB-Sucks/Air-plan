@@ -156,7 +156,7 @@ class DesignLibrary:
             "configuration": configuration, "mission_name": mission.name,
             "feasible": int(bool(ev and ev.feasible)), "score": ev.score if ev is not None else None,
             "mtow_kg": metrics.get("mtow_kg"), "span_m": params.wing.span, "tags": tags, "notes": notes,
-            "parameters_json": json.dumps(params.to_dict()), "mission_json": json.dumps(mission.to_dict()),
+            "parameters_json": json.dumps(params.to_saved_dict()), "mission_json": json.dumps(mission.to_saved_dict()),
             "metrics_json": json.dumps(metrics), "thumbnail_png": thumbnail_png, "origin": origin,
             "parent_id": parent_id,
         }

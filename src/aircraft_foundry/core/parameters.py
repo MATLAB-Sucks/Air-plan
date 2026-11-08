@@ -215,6 +215,10 @@ class AircraftParameters:
         return copy.deepcopy(self)
 
     def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_saved_dict(self) -> dict:
+        """For files and the library: the fields plus the format version (see core.compat)."""
         from .compat import PARAMETERS_FORMAT
         return {**asdict(self), "_format_version": PARAMETERS_FORMAT}
 

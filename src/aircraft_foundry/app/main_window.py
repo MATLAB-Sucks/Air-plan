@@ -74,6 +74,11 @@ class MainWindow(QMainWindow):
         self.structures = StructuresPanel()
         where = "Portable (USB)" if self.location.portable else "This computer"
         self.library_panel = LibraryPanel(self.library, f"{where}: {self.location.root}")
+        from .controller_page import ControllerManager, ControllerPage
+        self.controllers = ControllerManager(parent=self)
+        self.controller_page = ControllerPage(self.controllers)
+        self.controllers.updated.connect(self._pad_ui)
+        self._pad_repeat: dict = {}
         self.pages = QStackedWidget()
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
@@ -87,7 +92,8 @@ class MainWindow(QMainWindow):
                                    ("library", "📚  Library", self.library_panel),
                                    ("studio", "🛠  Design studio", self._placeholder("studio")),
                                    ("tunnel", "🌬  Wind tunnel", self._placeholder("tunnel")),
-                                   ("simulator", "✈  Flight simulator", self._placeholder("simulator"))):
+                                   ("simulator", "✈  Flight simulator", self._placeholder("simulator")),
+                                   ("controllers", "🎮  Controllers", self.controller_page)):
             self.nav.addItem(title)
             self.pages.addWidget(self._page(title.split("  ", 1)[1], widget))
             self.page_keys.append(key)
@@ -141,6 +147,55 @@ class MainWindow(QMainWindow):
             self.viewport.start()
             from .update_dialog import check_in_background
             check_in_background(self._update_found)
+
+    # ------------------------------------------------------------ game controller in the main window
+    def _pad_ui(self, st) -> None:
+        """Controller navigation everywhere except the flight simulator (which flies with it)."""
+        import time as _t
+        from PySide6.QtGui import QKeyEvent
+        from PySide6.QtWidgets import QAbstractButton, QApplication, QDialog
+        from ..input.controller import ui_actions
+        if st is None or not self.isActiveWindow() and QApplication.activeModalWidget() is None:
+            return
+        if self.page_keys[self.nav.currentRow()] == "simulator" and "simulator" in self.tool_windows:
+            return
+        act_ = ui_actions(st, self.controllers.settings, self._pad_repeat, _t.monotonic())
+        target = QApplication.focusWidget() or self
+
+        def key(k, mod=Qt.NoModifier):
+            for kind in (QKeyEvent.KeyPress, QKeyEvent.KeyRelease):
+                QApplication.sendEvent(target, QKeyEvent(kind, k, mod))
+        for k in act_["keys"]:
+            if k == "up":
+                self.focusNextPrevChild(False) if not isinstance(target, QDialog) else key(Qt.Key_Backtab)
+            elif k == "down":
+                self.focusNextPrevChild(True) if not isinstance(target, QDialog) else key(Qt.Key_Tab)
+            elif k in ("left", "right"):
+                key(Qt.Key_Left if k == "left" else Qt.Key_Right)
+            elif k == "activate":
+                if isinstance(target, QAbstractButton):
+                    target.click()
+                else:
+                    key(Qt.Key_Space)
+            elif k == "back":
+                modal = QApplication.activeModalWidget()
+                if isinstance(modal, QDialog):
+                    modal.reject()
+        if act_["page"]:
+            self.nav.setCurrentRow((self.nav.currentRow() + act_["page"]) % self.nav.count())
+        ox, oy = act_["orbit"]
+        zoom = act_["zoom"]
+        if (abs(ox) > 0 or abs(oy) > 0 or abs(zoom) > 0.05) and self.centre.currentWidget() is self.viewport:
+            cam = self.viewport.renderer.GetActiveCamera()
+            cam.Azimuth(-3.0 * ox)
+            cam.Elevation(3.0 * oy)
+            cam.OrthogonalizeViewUp()
+            if abs(zoom) > 0.05:
+                cam.Dolly(1.0 + 0.03 * zoom)
+            self.viewport.renderer.ResetCameraClippingRange()
+            self.viewport.vtk_widget.GetRenderWindow().Render()
+        if act_["fly"]:
+            self.fly()
 
     # ------------------------------------------------------------ updates
     def _update_found(self, info):
@@ -533,6 +588,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Flight test", f"Could not build a flight model for this design:\n{exc}")
             return
         self.sim_window.timer.stop()
+        self.sim_window.pads = self.controllers  # fly with a game controller too
         self.embed_tool("simulator", self.sim_window)
 
     def fly(self, start: str = "runway"):

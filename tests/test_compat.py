@@ -39,11 +39,13 @@ def test_design_from_a_newer_version_opens_with_a_report():
 
 def test_current_saves_carry_a_format_version_and_round_trip():
     p = AircraftParameters()
-    d = p.to_dict()
+    d = p.to_saved_dict()
     assert d["_format_version"] == PARAMETERS_FORMAT
     assert AircraftParameters.from_dict(d) == p
+    assert "_format_version" not in p.to_dict()  # plain dict for copies: AircraftParameters-style **kwargs
     m = MissionRequirements(g_limit=4.0, ignore="boom")
-    assert MissionRequirements.from_dict(m.to_dict()) == m
+    assert MissionRequirements.from_dict(m.to_saved_dict()) == m
+    assert MissionRequirements(**m.to_dict()) == m
 
 
 def test_library_rows_written_by_older_versions_load(tmp_path):

@@ -57,7 +57,7 @@ class Candidate:
 
     def to_dict(self) -> dict:
         return {"id": self.id, "name": self.name, "origin": self.origin, "parents": self.parents,
-                "parameters": self.params.to_dict()}
+                "parameters": self.params.to_saved_dict()}
 
     @classmethod
     def from_dict(cls, d: dict, mission: MissionRequirements | None = None) -> "Candidate":

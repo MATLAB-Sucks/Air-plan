@@ -38,7 +38,7 @@ class Project:
             "format_version": FORMAT_VERSION,
             "app_version": __version__,
             "saved_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "mission": self.mission.to_dict(),
+            "mission": self.mission.to_saved_dict(),
             "candidates": [c.to_dict() for c in self.candidates],
             "active_id": self.active_id,
             "settings": self.settings,

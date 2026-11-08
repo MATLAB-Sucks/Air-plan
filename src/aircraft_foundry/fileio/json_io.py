@@ -30,7 +30,7 @@ def design_document(design: AircraftDesign, mission: MissionRequirements | None 
         "design": design.to_dict(),
     }
     if mission is not None:
-        doc["mission"] = mission.to_dict()
+        doc["mission"] = mission.to_saved_dict()
     if evaluation is not None:
         doc["evaluation"] = evaluation.to_dict()
     if include_manifest:
