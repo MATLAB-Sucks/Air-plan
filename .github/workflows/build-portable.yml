@@ -85,8 +85,10 @@ jobs:
             New-Item -ItemType Directory -Force mesa | Out-Null
             $rel = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "af-ci" } `
                      -Uri "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest"
-            $asset = $rel.assets | Where-Object { $_.name -like "*-release-msvc.7z" } | Select-Object -First 1
-            if (-not $asset) { Fail "no *-release-msvc.7z asset in mesa-dist-win $($rel.tag_name)" }
+            # Mesa 26's MSVC build no longer ships OpenGL (opengl32.dll); the MinGW build still does.
+            $asset = $rel.assets | Where-Object { $_.name -like "*-release-mingw.7z" } | Select-Object -First 1
+            if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -like "*-release-msvc.7z" } | Select-Object -First 1 }
+            if (-not $asset) { Fail "no release archive in mesa-dist-win $($rel.tag_name)" }
             Write-Host "Downloading $($asset.name)"
             Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mesa\mesa.7z"
           } catch { Fail "download: $_" }
