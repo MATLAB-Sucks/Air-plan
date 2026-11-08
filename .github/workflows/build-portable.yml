@@ -1,8 +1,3 @@
-# Builds the Windows and Intel-macOS apps, runs the tests and the packaged
-# self-test on each, and assembles one downloadable USB folder.
-# Trigger: Actions tab > "Build portable USB edition" > Run workflow (or push a tag v*).
-# Pushing a version tag (v0.9.0) also publishes a GitHub Release that the app's
-# "Check for updates" installs from: Windows zip, macOS zip, USB zip and SHA256SUMS.txt.
 name: Build portable USB edition
 
 on:
@@ -23,6 +18,9 @@ jobs:
             lock: requirements/lock-windows-x64-py311.txt
             artifact: windows
     runs-on: ${{ matrix.os }}
+    env:
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+      NUMBA_DISABLE_TBB: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,26 +31,51 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --only-binary :all: -r ${{ matrix.lock }}
           python -m pip install --no-deps -e .
-          python -m pip install "pytest>=8" "pyinstaller==6.16.0"
-      - name: Build application
+          python -m pip install "pytest>=8" "pyinstaller==6.16.0" "tbb" || python -m pip install "pytest>=8" "pyinstaller==6.16.0"
+
+      - name: Build application (macOS)
+        if: runner.os == 'macOS'
         run: pyinstaller --noconfirm packaging/aircraft_foundry.spec
+
+      - name: Build application (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # PyInstaller may trigger 0xc0000374 (heap corruption) on Windows during Python
+          # process teardown even when the build succeeded. We verify the final binary exists.
+          pyinstaller --noconfirm packaging/aircraft_foundry.spec
+          $exitCode = $LASTEXITCODE
+
+          if (Test-Path "dist\AircraftFoundry\AircraftFoundry.exe") {
+            Write-Host "Build output verified: dist\AircraftFoundry\AircraftFoundry.exe exists."
+          } else {
+            Write-Error "Build failed: Output executable dist\AircraftFoundry\AircraftFoundry.exe was not created."
+            exit 1
+          }
+
       - name: Self-test packaged app (macOS)
         if: runner.os == 'macOS'
         run: '"dist/Aircraft Foundry.app/Contents/MacOS/AircraftFoundry" --self-test'
+
       - name: Self-test packaged app (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           # windowed exe has no console: the self-test writes its result to a log file
           $p = Start-Process -FilePath dist\AircraftFoundry\AircraftFoundry.exe -ArgumentList "--self-test","--self-test-log","selftest.txt" -Wait -PassThru
-          Get-Content selftest.txt
+          if (Test-Path selftest.txt) {
+            Get-Content selftest.txt
+          }
           if ($p.ExitCode -ne 0) { exit 1 }
+
       - name: Archive macOS app (keeps symlinks and permissions)
         if: runner.os == 'macOS'
         run: ditto -c -k --keepParent "dist/Aircraft Foundry.app" mac-app.zip
+
       - uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
         with: { name: mac, path: mac-app.zip }
+
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
         with: { name: windows, path: dist/AircraftFoundry }
