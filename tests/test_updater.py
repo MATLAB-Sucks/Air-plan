@@ -140,3 +140,22 @@ def test_windows_script_is_generated(tmp_path):
     text = script.read_text()
     assert "Get-Process -Id 1234" in text and "Move-Item" in text and "AircraftFoundry.exe" in text
     assert cmd[0] == "powershell"
+
+
+def test_github_errors_are_explained():
+    import urllib.error
+    from email.message import Message
+
+    def raiser(code, headers=None):
+        h = Message()
+        for k, v in (headers or {}).items():
+            h[k] = v
+
+        def fetch(url):
+            raise urllib.error.HTTPError(url, code, "x", h, None)
+        return fetch
+    with pytest.raises(up.UpdateError, match="No release has been published"):
+        up.check_for_update("me/repo", fetch=raiser(404))
+    with pytest.raises(up.UpdateError, match="60 update checks per hour"):
+        up.check_for_update("me/repo", fetch=raiser(403, {"X-RateLimit-Remaining": "0",
+                                                          "X-RateLimit-Reset": "1800000000"}))

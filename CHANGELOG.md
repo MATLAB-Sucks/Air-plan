@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2
+- First published release: the build workflow is fixed (Windows PyInstaller exit-crash
+  workaround, numba TBB conflict), so version tags now produce downloadable releases.
+- Clearer update messages: "no release published yet" instead of "404", and the time
+  to try again when GitHub's hourly limit is used up.
+- Includes everything from 0.9.0 and 0.9.1 (updates, compatibility, controllers, design
+  studio fixes, pages that follow the selected plane).
+
 ## 0.9.1
 - **Fixed: dragging parts in the design studio.** Parts could not be dragged out of the
   parts bin: a Qt setting silently disabled dragging. A real-mouse drag test now guards it.

@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -114,6 +115,21 @@ def _get(url: str, token: str | None = None, timeout: float = 20.0):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+def _http_message(exc, repo: str) -> str:
+    """Plain-language explanations of GitHub's answers."""
+    if exc.code == 404:
+        return (f"No release has been published on '{repo}' yet — or the repository name is wrong, or it is "
+                "private (GitHub answers 'not found' for private repositories unless a token is set).")
+    if exc.code in (403, 429):
+        reset = exc.headers.get("X-RateLimit-Reset") if exc.headers else None
+        if exc.headers and exc.headers.get("X-RateLimit-Remaining") == "0" and reset:
+            when = time.strftime("%H:%M", time.localtime(int(reset)))
+            return (f"GitHub's limit of 60 update checks per hour for this internet connection is used up. "
+                    f"Try again after {when} (or set a token in the update settings).")
+        return f"GitHub refused the request ({exc.code}). If the repository is private, set a token."
+    return f"GitHub answered with an error ({exc.code} {exc.reason})."
+
+
 def check_for_update(repo: str = DEFAULT_REPO, current: str = __version__, token: str | None = None,
                      fetch=None) -> UpdateInfo | None:
     """The latest release if it is newer than ``current`` (None if up to date).
@@ -123,7 +139,9 @@ def check_for_update(repo: str = DEFAULT_REPO, current: str = __version__, token
     fetch = fetch or (lambda u: _get(u, token).read())
     try:
         rel = json.loads(fetch(API.format(repo=repo)))
-    except Exception as exc:  # offline, rate-limited, private repo without token...
+    except urllib.error.HTTPError as exc:
+        raise UpdateError(_http_message(exc, repo)) from exc
+    except Exception as exc:  # offline, DNS, TLS...
         raise UpdateError(f"Couldn't reach GitHub ({exc}). Check the internet connection, and that the "
                           f"repository '{repo}' is public (or a token is set in the update settings).") from exc
     if not isinstance(rel, dict) or "tag_name" not in rel:

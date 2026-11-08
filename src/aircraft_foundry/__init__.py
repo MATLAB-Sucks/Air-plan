@@ -1,3 +1,3 @@
 """Aircraft Foundry: procedural conceptual aircraft design."""
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
