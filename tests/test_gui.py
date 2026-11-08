@@ -1,4 +1,5 @@
 """GUI smoke test.  Needs a display with OpenGL (on Linux CI: xvfb-run)."""
+import numpy as np
 import os
 import time
 
@@ -170,4 +171,55 @@ def test_design_viewport_ignores_vtk_shortcuts(app, tmp_path):
     assert _representations(w.viewport.renderer) == before  # only the toolbar changes the display mode
     assert w.viewport.interactor.GetInitialized()
     w.dirty = False
+    w.close()
+
+
+def test_design_studio_drag_and_verdict(app):
+    from PySide6.QtCore import QPointF
+    from aircraft_foundry.app.design_studio import DesignStudioWindow, Handle
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    app.processEvents()
+    assert w.verdict.flies and w.fly_btn.isEnabled()
+    tip = [h for h in w.top.scene().items() if isinstance(h, Handle) and "wing span" in h.toolTip()][0]
+    span0 = w.params.wing.span
+    tip.setPos(tip.pos() + QPointF(1.0, 3.0))
+    tip.on_release()
+    w.refresh_analysis()
+    assert w.params.wing.span > span0 + 3  # dragging the tip stretched the wing
+    tip.setPos(QPointF(tip.pos().x(), 900.0))  # absurd drag: clamped to the valid range, no crash
+    assert w.params.wing.span <= 80.0
+    got = []
+    w.send_to_project.connect(got.append)
+    w.add_btn.click()
+    assert got and got[0].wing.span == w.params.wing.span
+    w.set_config("tail_type", "v_tail")
+    w.refresh_analysis()
+    assert w.params.configuration.tail_type == "v_tail" and w.verdict is not None
+    w.close()
+
+
+def test_wind_tunnel_window(app):
+    from aircraft_foundry.app.wind_tunnel import WindTunnelWindow
+    from aircraft_foundry.core.design import AircraftDesign
+    from aircraft_foundry.core.evaluator import evaluate
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    p = baseline(m, _C("turbofan", "wing", "conventional", "low"))
+    w = WindTunnelWindow(AircraftDesign(p, "wt"), m, evaluate(p, m))
+    w.show()
+    app.processEvents()
+    assert w.wait_for_streamlines(120) and len(w.particles) > 20
+    assert "CL" in w.readout.text() and "fails at" in w.readout.text()
+    w.colour.setCurrentIndex(1)
+    w.sliders["n"][0].setValue(int(5.0 / 0.1))
+    w.recompute()
+    wing = [pp for pp in w.parts if pp["id"].startswith("wing.right")][0]
+    vals = np.array([wing["poly"].GetPointData().GetScalars().GetValue(i)
+                     for i in range(wing["poly"].GetNumberOfPoints())])
+    assert vals.max() > 1.0  # above the ultimate load, part of the wing shows as failed
     w.close()

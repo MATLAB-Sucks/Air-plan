@@ -56,6 +56,12 @@ class MainWindow(QMainWindow):
         fly_btn = self.viewport.toolbar.addAction("✈ Fly")
         fly_btn.setToolTip("Flight-test the selected design in the simulator (F5)")
         fly_btn.triggered.connect(lambda: self.fly())
+        studio_btn = self.viewport.toolbar.addAction("🛠 Studio")
+        studio_btn.setToolTip("Build or reshape a design by dragging parts, and see if it flies (F6)")
+        studio_btn.triggered.connect(self.open_studio)
+        wt_btn = self.viewport.toolbar.addAction("🌬 Wind tunnel")
+        wt_btn.setToolTip("See the airflow, pressure and structural stress on the selected design (F7)")
+        wt_btn.triggered.connect(self.open_wind_tunnel)
 
         self.mission_panel = MissionPanel()
         self._dock("Mission and generation", self.mission_panel, Qt.LeftDockWidgetArea)
@@ -140,6 +146,9 @@ class MainWindow(QMainWindow):
         sm = self.menuBar().addMenu("&Simulate")
         act(sm, "✈ Fly this design (flight test)…", self.fly, "F5")
         act(sm, "✈ Fly from cruise (trimmed)…", lambda: self.fly("cruise"))
+        sm.addSeparator()
+        act(sm, "🛠 Design studio (drag and drop)…", self.open_studio, "F6")
+        act(sm, "🌬 Wind tunnel…", self.open_wind_tunnel, "F7")
         vm = self.menuBar().addMenu("&View")
         for name in ("iso", "front", "side", "top", "rear"):
             act(vm, f"{name.title()} view", lambda _=False, n=name: self.viewport.view(n))
@@ -339,6 +348,39 @@ class MainWindow(QMainWindow):
         self.gallery.update_candidate(c)
         self.activate_candidate(c.id)
         self._mark_dirty()
+
+    def open_studio(self):
+        """Design studio, starting from the active design (or a fresh one for the current mission)."""
+        from .design_studio import DesignStudioWindow
+        c = self.candidate
+        if c is not None:
+            params = c.params
+        else:
+            from ..core.synthesis import baseline, configurations_for
+            params = baseline(self.project.mission, configurations_for(self.project.mission)[0])
+        self.studio = DesignStudioWindow(params, self.project.mission, None,
+                                         name=(c.name + " (studio)") if c is not None else "Studio design")
+        self.studio.send_to_project.connect(self.add_studio_design)
+        self.studio.show()
+
+    def add_studio_design(self, params):
+        n = sum(1 for c in self.project.candidates if c.origin == "design studio") + 1
+        c = Candidate(params, name=f"Studio design {n}", origin="design studio")
+        c.evaluate(self.project.mission)
+        self.project.candidates.append(c)
+        self.gallery.update_candidate(c)
+        self.activate_candidate(c.id)
+        self._mark_dirty()
+        self.status_label.setText(f"Added '{c.name}' from the design studio to the project")
+
+    def open_wind_tunnel(self):
+        c = self.candidate
+        if self.design is None or c is None or c.evaluation is None or not c.evaluation.converged:
+            QMessageBox.information(self, "Wind tunnel", "Load a design whose weights close first.")
+            return
+        from .wind_tunnel import WindTunnelWindow
+        self.wt_window = WindTunnelWindow(self.design, self.project.mission, c.evaluation, None)
+        self.wt_window.show()
 
     def fly(self, start: str = "runway"):
         """Open the flight-test simulator with the active design."""

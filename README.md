@@ -15,6 +15,16 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.6:**
+
+* **Design studio:** drag and resize parts, add tails and engines, resize
+  control surfaces, and get a live "will it fly?" verdict; then fly the
+  result.
+* **Wind tunnel:** vortex-lattice airflow with streamlines and smoke,
+  pressure colouring, and a view of where the airframe would break at any g.
+
+See [docs/DESIGN_STUDIO_AND_WIND_TUNNEL.md](docs/DESIGN_STUDIO_AND_WIND_TUNNEL.md).
+
 **New in 0.5:**
 
 * An autopilot that can take off, land, fly continuous low-fuel circuits and
@@ -88,7 +98,7 @@ python -m aircraft_foundry
 To check the install:
 
 ```bash
-pytest                                   # 147 tests; the GUI test is skipped unless AF_GUI_TESTS=1
+pytest                                   # 155 tests; the GUI test is skipped unless AF_GUI_TESTS=1
 AF_GUI_TESTS=1 pytest tests/test_gui.py  # drives the real window: generate, edit, pick, evolve, save
 python -m aircraft_foundry --self-test   # opens, renders, evaluates, then exits
 ```
