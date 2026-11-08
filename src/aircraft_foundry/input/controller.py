@@ -267,6 +267,8 @@ class SDLBackend:
 
 
 def make_backend():
+    for k, v in SDL_HINTS.items():  # before pygame is imported: hints and no console banner
+        os.environ.setdefault(k, v)
     try:
         import pygame  # noqa: F401
     except Exception:

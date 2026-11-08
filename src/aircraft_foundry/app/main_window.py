@@ -226,7 +226,49 @@ class MainWindow(QMainWindow):
         lay.addWidget(head)
         lay.addWidget(widget, 1)
         page.body = widget
+        page.head, page.title = head, title
         return page
+
+    # ------------------------------------------------------------ pages follow the selected aircraft
+    TOOL_PAGES = ("studio", "tunnel", "simulator")
+
+    def _tool_key(self):
+        """Identity of the selected aircraft *and* its current parameters (edits make tools stale)."""
+        import json as _json
+        c = self.candidate
+        if c is None:
+            return None
+        return (c.id, _json.dumps(c.params.to_dict(), sort_keys=True, default=str))
+
+    def _selected_design(self):
+        c = self.candidate
+        return AircraftDesign(c.params.copy(), c.name or c.id) if c is not None else None
+
+    def _update_titles(self):
+        c = self.candidate
+        name = (c.name or c.id) if c is not None else None
+        for i, key in enumerate(self.page_keys):
+            page = self.pages.widget(i)
+            tool = self.tool_windows.get(key)
+            shown = getattr(tool, "source_name", None) if tool is not None else None
+            label = shown or (name if key in self.TOOL_PAGES + ("parameters", "inspector", "structures") else None)
+            page.head.setText(page.title + (f"  —  {label}" if label else ""))
+
+    def _ensure_tool(self, key: str) -> None:
+        """Build (or rebuild) a tool page for the selected aircraft if it isn't showing it yet."""
+        if key not in self.TOOL_PAGES or self.candidate is None:
+            return
+        tool = self.tool_windows.get(key)
+        source = getattr(tool, "source_key", None) if tool is not None else None
+        if tool is not None and (source == self._tool_key() or getattr(tool, "pinned", False)):
+            return
+        if getattr(self, "_building_tool", False):
+            return
+        self._building_tool = True
+        try:
+            {"studio": self.open_studio, "tunnel": self.open_wind_tunnel, "simulator": self.fly}[key]()
+        finally:
+            self._building_tool = False
 
     def _placeholder(self, key: str) -> QWidget:
         text = {"studio": "Select a generated aircraft (left) — or open the studio to start a new design.",
@@ -253,6 +295,12 @@ class MainWindow(QMainWindow):
     def _page_changed(self, row: int) -> None:
         self.pages.setCurrentIndex(row)
         key = self.page_keys[row]
+        if key in self.TOOL_PAGES:
+            tool = self.tool_windows.get(key)
+            if tool is not None and getattr(tool, "pinned", False) and self._tool_key() is not None \
+                    and getattr(tool, "pinned_for", None) != self._tool_key():
+                tool.pinned = False  # a different aircraft was chosen since: follow the selection again
+            self._ensure_tool(key)
         tool = self.tool_windows.get(key)
         self.centre.setCurrentWidget(tool.embedded_centre if tool is not None else self.viewport)
         sim = self.tool_windows.get("simulator")
@@ -290,6 +338,7 @@ class MainWindow(QMainWindow):
         page.body = side
         page.layout().addWidget(side, 1)
         self.tool_windows[key] = window
+        self._update_titles()
         if self.nav.currentRow() == idx:
             self._page_changed(idx)
         else:
@@ -431,6 +480,8 @@ class MainWindow(QMainWindow):
         c = self.project.candidate(cid)
         if c is None:
             return
+        if self.candidate is not None and c is not self.candidate and not self._confirm_studio_changes():
+            return
         self.candidate = c
         self.project.active_id = cid
         if self.design is None:
@@ -447,6 +498,13 @@ class MainWindow(QMainWindow):
         self.gallery.mark_active(cid)
         self.status_label.setText(f"{c.name}: {c.evaluation.message} — {len(self.design.components)} components "
                                   f"({stats.added + stats.geometry_updated} rebuilt, {stats.reused} reused)")
+        key = self.page_keys[self.nav.currentRow()] if hasattr(self, "nav") else None
+        if key in self.TOOL_PAGES:
+            tool = self.tool_windows.get(key)
+            if tool is not None:
+                tool.pinned = False
+            self._ensure_tool(key)  # the page on screen switches to the chosen aircraft right away
+        self._update_titles()
 
     def edit_parameter(self, path: str, value):
         if self.design is None:
@@ -541,17 +599,58 @@ class MainWindow(QMainWindow):
         else:
             from ..core.synthesis import baseline, configurations_for
             params = baseline(self.project.mission, configurations_for(self.project.mission)[0])
+        if not self._confirm_studio_changes():
+            return
         studio = DesignStudioWindow(params, self.project.mission, None,
-                                    name=(c.name + " (studio)") if c is not None else "Studio design")
+                                    name=(c.name or c.id) if c is not None else "New design")
         studio.send_to_project.connect(self.add_studio_design)
+        studio.apply_to_selected.connect(self._apply_studio)
+        studio.set_target_name(c.name or c.id if c is not None else None)
+        studio.source_key, studio.source_name = self._tool_key(), (c.name or c.id) if c is not None else None
         for btn, slot in ((studio.fly_btn, lambda: self._open_sim(studio.design, studio.mission,
-                                                                   studio.verdict.evaluation)),
+                                                                   studio.verdict.evaluation,
+                                                                   pinned_name=studio.name + " (studio)")),
                           (studio.wt_btn, lambda: self._open_tunnel(studio.design, studio.mission,
-                                                                     studio.verdict.evaluation))):
+                                                                     studio.verdict.evaluation,
+                                                                     pinned_name=studio.name + " (studio)"))):
             btn.clicked.disconnect()
             btn.clicked.connect(slot)
         self.studio = studio
         self.embed_tool("studio", studio)
+
+    def _confirm_studio_changes(self) -> bool:
+        """Before the studio stops showing a plane: apply, discard or cancel unapplied edits."""
+        studio = self.tool_windows.get("studio")
+        if studio is None or not studio.modified() or self.candidate is None \
+                or studio.source_key is None or studio.source_key[0] != self.candidate.id:
+            return True
+        r = QMessageBox.question(self, "Design studio",
+                                 f"Apply your design-studio changes to '{self.candidate.name}'?",
+                                 QMessageBox.Apply | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Apply)
+        if r == QMessageBox.Cancel:
+            return False
+        if r == QMessageBox.Apply:
+            self._apply_studio(studio.params.copy(), reselect=False)
+        studio.mark_saved()
+        return True
+
+    def _apply_studio(self, params, reselect: bool = True):
+        """Save the studio's design into the selected aircraft (the one the studio is editing)."""
+        studio = self.tool_windows.get("studio")
+        c = self.candidate
+        if c is None or studio is None or studio.source_key is None or studio.source_key[0] != c.id:
+            self.add_studio_design(params)
+            return
+        c.params = params.copy()
+        c.evaluation = None
+        c.evaluate(self.project.mission)
+        self.gallery.update_candidate(c)
+        studio.mark_saved()
+        self._mark_dirty()
+        if reselect:
+            self.activate_candidate(c.id)
+            studio.source_key = self._tool_key()  # the studio is showing exactly this now
+        self.status_label.setText(f"Applied the design-studio changes to '{c.name}'.")
 
     def add_studio_design(self, params):
         n = sum(1 for c in self.project.candidates if c.origin == "design studio") + 1
@@ -569,16 +668,26 @@ class MainWindow(QMainWindow):
             self.show_page("tunnel")
             self.status_label.setText("Select a generated aircraft whose weights close to use the wind tunnel.")
             return
-        self._open_tunnel(self.design, self.project.mission, c.evaluation)
+        self._open_tunnel(self._selected_design(), self.project.mission, c.evaluation)
 
-    def _open_tunnel(self, design, mission, evaluation):
+    def _open_tunnel(self, design, mission, evaluation, pinned_name: str | None = None):
         from .wind_tunnel import WindTunnelWindow
         if evaluation is None or not evaluation.converged:
             return
         self.wt_window = WindTunnelWindow(design, mission, evaluation, None)
+        self._tag_tool(self.wt_window, pinned_name)
         self.embed_tool("tunnel", self.wt_window)
 
-    def _open_sim(self, design, mission, evaluation, start: str = "runway"):
+    def _tag_tool(self, tool, pinned_name):
+        """Record which aircraft a tool shows: the selection, or (pinned) a studio design."""
+        if pinned_name:
+            tool.pinned, tool.pinned_for, tool.source_key, tool.source_name = True, self._tool_key(), None, pinned_name
+        else:
+            c = self.candidate
+            tool.pinned, tool.source_key = False, self._tool_key()
+            tool.source_name = (c.name or c.id) if c is not None else None
+
+    def _open_sim(self, design, mission, evaluation, start: str = "runway", pinned_name: str | None = None):
         from ..simulator.window import SimulatorWindow
         if evaluation is None or not evaluation.converged:
             return
@@ -589,6 +698,7 @@ class MainWindow(QMainWindow):
             return
         self.sim_window.timer.stop()
         self.sim_window.pads = self.controllers  # fly with a game controller too
+        self._tag_tool(self.sim_window, pinned_name)
         self.embed_tool("simulator", self.sim_window)
 
     def fly(self, start: str = "runway"):
@@ -598,7 +708,7 @@ class MainWindow(QMainWindow):
             self.show_page("simulator")
             self.status_label.setText("Select a generated aircraft whose weights close to fly it.")
             return
-        self._open_sim(self.design, self.project.mission, c.evaluation, start)
+        self._open_sim(self._selected_design(), self.project.mission, c.evaluation, start)
 
     def select_component(self, cid: str | None):
         self.selected_component = cid

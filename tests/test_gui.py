@@ -301,3 +301,106 @@ def test_requirement_checklist_round_trip(app):
     assert not p.req_boxes["airport_noise"].isChecked() and p.req_boxes["span"].isChecked()
     m = p.mission()
     assert set(m.ignore.split(",")) == {"airport_noise", "cabin_noise"} and m.g_limit == 4.0
+
+
+def test_parts_bin_really_drags_and_views_accept_drops(app):
+    """Regression: QListView.setMovement(Static) had silently disabled dragging from the parts bin."""
+    from PySide6.QtCore import QMimeData, QPoint, Qt
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    from PySide6.QtWidgets import QAbstractItemView
+    from aircraft_foundry.app.design_studio import MIME, DesignStudioWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    app.processEvents()
+    assert w.bin.dragEnabled() and w.bin.dragDropMode() == QAbstractItemView.DragOnly
+    node = [n for n in w.nodes_for("jet_pair", "top") if n[1][0] == "rear"][0][0]
+    pos = w.top.mapFromScene(node)
+    md = QMimeData()
+    md.setData(MIME, b"jet_pair")
+    vp = w.top.viewport()
+    app.sendEvent(vp, QDragEnterEvent(pos, Qt.CopyAction, md, Qt.LeftButton, Qt.NoModifier))
+    app.sendEvent(vp, QDropEvent(pos.toPointF(), Qt.CopyAction, md, Qt.LeftButton, Qt.NoModifier))
+    app.processEvents()
+    assert w.params.configuration.engine_layout == "rear_fuselage"  # the drop reached the editor and attached
+    w.close()
+
+
+def test_pages_follow_the_selected_aircraft(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from aircraft_foundry.app.main_window import MainWindow
+    from aircraft_foundry.core.synthesis import baseline, configurations_for
+    from aircraft_foundry.portable import DataLocation
+    w = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    w.show()
+    app.processEvents()
+    cfgs = configurations_for(w.project.mission)
+    w.add_studio_design(baseline(w.project.mission, cfgs[0]))
+    a = w.candidate
+    w.add_studio_design(baseline(w.project.mission, cfgs[2]))
+    b = w.candidate
+    assert a.id != b.id and w.candidate is b
+    w.show_page("studio")  # opens by itself, for the selected aircraft
+    assert w.tool_windows["studio"].source_key[0] == b.id and b.name in w.pages.currentWidget().head.text()
+    w.activate_candidate(a.id)  # choose another plane while the studio is showing
+    studio = w.tool_windows["studio"]
+    assert studio.source_key[0] == a.id
+    w.show_page("simulator")  # built automatically for the selected plane
+    assert w.tool_windows["simulator"].source_key[0] == a.id
+    w.activate_candidate(b.id)
+    assert w.tool_windows["simulator"].source_key[0] == b.id and w.sim_window.design.name == b.name
+    # edit in the studio and apply to the selected plane
+    w.activate_candidate(a.id)
+    w.show_page("studio")
+    studio = w.tool_windows["studio"]
+    span = studio.params.wing.span + 2.0
+    studio.set_value("wing.span", span)
+    assert studio.modified() and studio.apply_btn.isEnabled()
+    studio.apply_btn.click()
+    assert a.params.wing.span == pytest.approx(span) and not w.tool_windows["studio"].modified()
+    # unapplied changes when switching plane: the user is asked (here: discard)
+    w.tool_windows["studio"].set_value("wing.span", span + 1.0)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a_, **k: QMessageBox.Discard)
+    w.activate_candidate(b.id)
+    assert a.params.wing.span == pytest.approx(span) and w.tool_windows["studio"].source_key[0] == b.id
+    # parameter edits make the tool pages rebuild when next shown
+    w.show_page("simulator")
+    before = w.sim_window
+    w.show_page("parameters")
+    w.edit_parameter("wing.span", b.params.wing.span + 1.5)
+    w.show_page("simulator")
+    assert w.sim_window is not before
+    w.dirty = False
+    w.close()
+
+
+@pytest.mark.skipif(__import__("shutil").which("xdotool") is None, reason="needs xdotool for a real mouse drag")
+def test_real_mouse_drag_from_parts_bin(app):
+    """Drags a part with the actual mouse (X11 drag-and-drop), not by calling the drop handler."""
+    import subprocess
+    from PySide6.QtCore import QEventLoop, QTimer
+    from aircraft_foundry.app.design_studio import DesignStudioWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.resize(1500, 900)
+    w.move(0, 0)
+    w.show()
+    for _ in range(20):
+        app.processEvents()
+    item = [w.bin.item(i) for i in range(w.bin.count()) if w.bin.item(i).data(256) == "jet_pair"][0]
+    src = w.bin.viewport().mapToGlobal(w.bin.visualItemRect(item).center())
+    node = [n for n in w.nodes_for("jet_pair", "top") if n[1][0] == "rear"][0][0]
+    dst = w.top.viewport().mapToGlobal(w.top.mapFromScene(node))
+    path = " ".join(f"mousemove {int(src.x() + (dst.x() - src.x()) * k / 12)} "
+                    f"{int(src.y() + (dst.y() - src.y()) * k / 12)} sleep 0.05" for k in range(1, 13))
+    subprocess.Popen(f"xdotool mousemove {src.x()} {src.y()} sleep 0.2 mousedown 1 sleep 0.2 "
+                     f"mousemove {src.x() + 20} {src.y() + 20} sleep 0.1 {path} sleep 0.4 mouseup 1", shell=True)
+    loop = QEventLoop()
+    QTimer.singleShot(6000, loop.quit)
+    loop.exec()
+    assert w.params.configuration.engine_layout == "rear_fuselage"
+    w.close()

@@ -41,10 +41,20 @@ in gold, and only its drag handles appear:
   booms makes a conventional layout. The wing, fuselage, engines and gear
   can be reshaped but not removed.
 
+**Which plane you're editing.** The studio, wind tunnel and flight simulator
+always show the plane selected in the left panel; the page title names it.
+Choose another plane and the page switches to it.
+
+* **Apply changes to '<plane>'** saves your edits into that plane.
+* **Save as new plane** keeps the original and adds your version beside it.
+* If you switch planes with unapplied changes, you are asked whether to apply
+  or discard them.
+
 **Will it fly?** updates as you build. **⚖ Balance** moves the wing to
 restore pitch stability after you move heavy parts, for example rear
-engines. **✈ Fly it** and **🌬 Wind tunnel** open those pages with this
-design, and **Add to project** adds it to the generated aircraft.
+engines. **✈ Fly it** and **🌬 Wind tunnel** open those pages with the
+studio's current design, even before you apply it. It is shown as
+"<plane> (studio)" until you pick a plane again.
 
 ## Wind tunnel — 🌬 Wind tunnel page
 

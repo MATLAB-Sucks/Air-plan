@@ -117,9 +117,12 @@ class PartsBin(QListWidget):
         self.setResizeMode(QListWidget.Adjust)
         self.setGridSize(self.gridSize().__class__(132, 46))
         self.setWordWrap(True)
-        self.setDragEnabled(True)
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setMovement(QListWidget.Static)
+        # setMovement(Static) silently turns dragging off in Qt: enable it afterwards, as drag-only
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.setDefaultDropAction(Qt.CopyAction)
         self.setMinimumHeight(250)
         for kind, label, tip in PARTS:
             it = QListWidgetItem(label)
@@ -286,7 +289,8 @@ class EditorView(QGraphicsView):
 
 
 class DesignStudioWindow(QMainWindow):
-    send_to_project = Signal(object)  # AircraftParameters
+    send_to_project = Signal(object)  # AircraftParameters: save as a new aircraft
+    apply_to_selected = Signal(object)  # AircraftParameters: save into the aircraft being edited
 
     def __init__(self, params: AircraftParameters, mission: MissionRequirements, parent=None, name: str = "Studio design"):
         super().__init__(parent)
@@ -294,7 +298,9 @@ class DesignStudioWindow(QMainWindow):
         self.resize(1500, 920)
         self.mission = mission
         self.params = params.copy()
+        self._saved = params.copy()
         self.name = name
+        self.target_name = None
         self.design = AircraftDesign(self.params.copy(), name)
         self.verdict = None
         self._dragging = False
@@ -364,12 +370,16 @@ class DesignStudioWindow(QMainWindow):
         self.fly_btn = QPushButton("✈ Fly it")
         self.fly_btn.setObjectName("primary")
         self.wt_btn = QPushButton("🌬 Wind tunnel")
-        self.add_btn = QPushButton("Add to project")
+        self.add_btn = QPushButton("Save as new plane")
+        self.apply_btn = QPushButton("Apply to selected plane")
+        self.apply_btn.setObjectName("primary")
+        self.apply_btn.clicked.connect(lambda: self.apply_to_selected.emit(self.params.copy()))
         self.fly_btn.clicked.connect(self.fly)
         self.wt_btn.clicked.connect(self.wind_tunnel)
         self.add_btn.clicked.connect(lambda: self.send_to_project.emit(self.params.copy()))
         for b_ in (self.fly_btn, self.wt_btn, self.add_btn):
             row.addWidget(b_)
+        vl.addWidget(self.apply_btn)
         self.balance_btn = QPushButton("⚖ Balance (move the wing for stability)")
         self.balance_btn.setToolTip("Moves the wing so the centre of gravity sits a healthy distance ahead of the "
                                     "neutral point, then re-sizes the tails and landing gear")
@@ -617,6 +627,27 @@ class DesignStudioWindow(QMainWindow):
         self.rebuild_editors(fit=True)
         self._build_properties()
         self.schedule_analysis(50)
+
+    def modified(self) -> bool:
+        return self.params.to_dict() != self._saved.to_dict()
+
+    def mark_saved(self) -> None:
+        self._saved = self.params.copy()
+        self._update_apply_button()
+
+    def set_target_name(self, name: str | None) -> None:
+        self.target_name = name
+        self._update_apply_button()
+
+    def _update_apply_button(self) -> None:
+        if not hasattr(self, "apply_btn"):
+            return
+        if self.target_name:
+            self.apply_btn.setText(f"Apply changes to '{self.target_name}'" + (" •" if self.modified() else ""))
+            self.apply_btn.setEnabled(self.modified())
+        else:
+            self.apply_btn.setText("Apply to selected plane")
+            self.apply_btn.setEnabled(False)
 
     def balance(self) -> None:
         from ..core import synthesis as S
@@ -1059,6 +1090,7 @@ class DesignStudioWindow(QMainWindow):
 
     def schedule_analysis(self, ms: int = 250):
         self._update_timer.start(ms)
+        self._update_apply_button()  # the Apply button reacts at once; the verdict follows shortly
 
     def refresh_analysis(self):
         from ..core.verdict import flight_verdict
@@ -1101,6 +1133,7 @@ class DesignStudioWindow(QMainWindow):
         self.fly_btn.setEnabled(v.flies)
         self.wt_btn.setEnabled(bool(v.evaluation and v.evaluation.converged))
         self._update_strength_readout()
+        self._update_apply_button()
 
     # ------------------------------------------------------------ actions
     def fly(self):

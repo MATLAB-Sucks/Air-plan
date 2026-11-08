@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1
+- **Fixed: dragging parts in the design studio.** Parts could not be dragged out of the
+  parts bin: a Qt setting silently disabled dragging. A real-mouse drag test now guards it.
+- **Every page follows the selected plane.** The design studio, wind tunnel and flight
+  simulator open with the plane selected on the left, switch when you choose another, and
+  refresh after edits on the Parameters page. Page titles show which plane you're on.
+- **Design studio saves into the plane you're editing:** *Apply changes to '<plane>'*, or
+  *Save as new plane*. Switching planes with unapplied changes asks first.
+- Flying or testing an unsaved studio design shows it as "<plane> (studio)" until you
+  choose a plane again.
+
 ## 0.9.0
 - **Check for updates** (status bar, or Help menu): installs new versions from GitHub
   Releases, verified by SHA-256. Your saved planes, projects and settings are kept, and
