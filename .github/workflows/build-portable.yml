@@ -74,12 +74,36 @@ jobs:
         run: |
           # GitHub's Windows runners have no GPU: Windows offers only OpenGL 1.1 and VTK needs 3.2.
           # A throwaway copy of the app gets Mesa's software OpenGL next to it; dist\ stays untouched.
-          gh release download --repo pal1000/mesa-dist-win --pattern "*release-msvc.7z" --dir mesa
-          $archive = (Get-ChildItem mesa\*.7z | Select-Object -First 1).FullName
-          7z x $archive -omesa\x -y | Out-Null
-          Copy-Item -Recurse dist\AircraftFoundry selftest-app
-          Copy-Item mesa\x\x64\*.dll selftest-app\
-          Get-ChildItem selftest-app\opengl32.dll
+          # Every stage reports what went wrong as an annotation (readable through the API).
+          function Fail($what) {
+            $msg = ($what | Out-String).Replace("%", "%25").Replace("`r", "").Replace("`n", "%0A")
+            Write-Host "::error title=Mesa setup failed::$msg"
+            exit 1
+          }
+          $ErrorActionPreference = "Stop"
+          try {
+            New-Item -ItemType Directory -Force mesa | Out-Null
+            $rel = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "af-ci" } `
+                     -Uri "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest"
+            $asset = $rel.assets | Where-Object { $_.name -like "*-release-msvc.7z" } | Select-Object -First 1
+            if (-not $asset) { Fail "no *-release-msvc.7z asset in mesa-dist-win $($rel.tag_name)" }
+            Write-Host "Downloading $($asset.name)"
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "mesa\mesa.7z"
+          } catch { Fail "download: $_" }
+          $out = 7z x "mesa\mesa.7z" "-omesa\x" -y 2>&1
+          if ($LASTEXITCODE -ne 0) { Fail "7z exit $LASTEXITCODE`n$($out | Select-Object -Last 15 | Out-String)" }
+          $gl = Get-ChildItem -Recurse mesa\x -Filter opengl32.dll | Where-Object { $_.FullName -match "x64" } |
+                Select-Object -First 1
+          if (-not $gl) {
+            Fail "no x64 opengl32.dll in the archive. Contents:`n$((Get-ChildItem -Recurse mesa\x -Filter *.dll | Select-Object -First 40 -ExpandProperty FullName) -join "`n")"
+          }
+          try {
+            Copy-Item -Recurse dist\AircraftFoundry selftest-app
+            Copy-Item (Join-Path $gl.DirectoryName "*.dll") selftest-app\
+          } catch { Fail "copy: $_" }
+          Write-Host "Mesa from $($gl.DirectoryName):"
+          Get-ChildItem selftest-app\opengl32.dll, selftest-app\libgallium_wgl.dll -ErrorAction SilentlyContinue
+          exit 0
 
       - name: Self-test packaged app (Windows)
         if: runner.os == 'Windows'
