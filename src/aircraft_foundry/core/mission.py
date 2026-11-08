@@ -28,10 +28,12 @@ class MissionRequirements:
     max_boom_pldb: float = p(75.0, 60.0, 110.0, "PLdB", "Max sonic boom on the ground (overland)")
     max_flyover_db: float = p(90.0, 70.0, 125.0, "dB", "Max airport noise (take-off flyover)")
     max_cabin_dba: float = p(82.0, 65.0, 95.0, "dB(A)", "Max cabin noise for passengers")
+    g_limit: float = p(2.5, 2.0, 12.0, "g", "Required g rating (limit load factor)")
     passenger_mass_kg: float = p(100.0, 70.0, 130.0, "kg", "Mass per passenger incl. bags")
     seat_pitch_m: float = p(0.79, 0.7, 1.0, "m", "Seat pitch")
     # "aerobatic" = stunt plane: +-10 g, roll-rate and power requirements, symmetric wing, light-aircraft rules
     category: str = choice("transport", ("transport", "aerobatic"), "Aircraft category")
+    ignore: str = ""  # comma-separated REQUIREMENTS keys the design should not be sized around
     notes: str = field(default="")
 
     # ------------------------------------------------------------ derived requirements
@@ -125,6 +127,31 @@ class MissionRequirements:
     @classmethod
     def load(cls, path: str | Path) -> "MissionRequirements":
         return cls.from_dict(json.loads(Path(path).read_text()))
+
+
+# Requirements the user can switch off.  Airworthiness checks (stability, tail sizing, trim,
+# structure, gear geometry, clearances) are always enforced so every design stays flyable.
+REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
+    ("span", "Wingspan / airport gate limit", ("Wingspan",)),
+    ("field", "Take-off field length", ("Take-off field length",)),
+    ("approach", "Approach speed", ("Approach speed",)),
+    ("oei", "Engine-out climb", ("OEI climb gradient",)),
+    ("cruise", "Cruise speed (thrust and drag-divergence)", ("Cruise thrust margin", "Drag-divergence margin",
+                                                            "Transonic acceleration margin (Mach 1.1)")),
+    ("fuel", "Fuel fits in the wing", ("Wing fuel capacity ratio",)),
+    ("cabin", "Cabin length for the passengers", ("Cabin length",)),
+    ("airport_noise", "Airport noise", ("Airport noise (take-off flyover)",)),
+    ("cabin_noise", "Cabin noise", ("Cabin noise",)),
+    ("boom", "Sonic boom over land", ("Sonic boom overland",)),
+    ("g_rating", "G rating", ("G rating",)),
+    ("aerobatic", "Aerobatic performance (roll rate, power, inverted)", (
+        "Roll rate at manoeuvring speed", "Static thrust / weight", "Symmetric aerofoil (inverted flight)")),
+]
+REQUIREMENT_OF = {name: key for key, _, names in REQUIREMENTS for name in names}
+
+
+def ignored_requirements(m) -> set[str]:
+    return {k.strip() for k in (getattr(m, "ignore", "") or "").split(",") if k.strip()}
 
 
 def mission_specs() -> list[tuple[str, dict]]:

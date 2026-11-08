@@ -137,6 +137,11 @@ class StructureParams:
     cabin_altitude_m: float = p(2438.0, 0.0, 3000.0, "m", "Cabin pressure altitude", step=50)
     weight_method: str = choice("statistical", ("statistical", "structural"), "Wing/fuselage weight method")
     insulation_kg_m2: float = p(1.5, 0.3, 20.0, "kg/m²", "Cabin acoustic insulation", step=0.1)
+    # strength reserve per component: 1 = sized exactly to the design ultimate load; 2 = twice as strong
+    wing_strength: float = p(1.0, 0.6, 3.0, "×", "Wing strength (reserve factor)", step=0.05)
+    fuselage_strength: float = p(1.0, 0.6, 3.0, "×", "Fuselage strength (reserve factor)", step=0.05)
+    tail_strength: float = p(1.0, 0.6, 3.0, "×", "Tail strength (reserve factor)", step=0.05)
+    gear_strength: float = p(1.0, 0.6, 3.0, "×", "Landing-gear strength (reserve factor)", step=0.05)
 
 
 @dataclass

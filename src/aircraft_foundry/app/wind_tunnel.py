@@ -330,7 +330,8 @@ class WindTunnelWindow(QMainWindow):
         if w is None:
             return np.array([0.0, 1.0]), np.array([0.0, 0.0])
         ms = np.minimum(np.minimum(np.asarray(w.ms_upper), np.asarray(w.ms_lower)), np.asarray(w.ms_web))
-        return np.asarray(w.eta), 1.0 / (1.0 + ms)  # utilisation at the design ultimate load
+        # utilisation at the design ultimate load, relieved by the wing's chosen strength reserve
+        return np.asarray(w.eta), 1.0 / (1.0 + ms) / self.params.structure.wing_strength
 
     def _failure_load(self) -> float:
         _, u = self._station_utilisation()

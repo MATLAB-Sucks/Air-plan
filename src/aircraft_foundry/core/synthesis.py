@@ -145,7 +145,10 @@ def complete_design(params: AircraftParameters, mission: MissionRequirements) ->
     _set(p, "gear.main_chord_fraction", (x_main - wx) / p.wing.root_chord)
     x_main = wx + p.gear.main_chord_fraction * p.wing.root_chord
     # cabin insulation just sufficient for the passengers' noise limit
-    if ev.converged:
+    from .mission import ignored_requirements
+    if "cabin_noise" in ignored_requirements(mission):
+        _set(p, "structure.insulation_kg_m2", 0.3)  # cabin noise not designed for: minimum trim insulation
+    elif ev.converged:
         _set(p, "structure.insulation_kg_m2", ev.metrics.get("insulation_needed_kg_m2", p.structure.insulation_kg_m2))
     d = x_main - x_cg
     if d > 0:
@@ -416,6 +419,7 @@ def baseline(mission: MissionRequirements, config: ConfigurationParams) -> Aircr
         return _size_aerobatic(mission, config)
     p = AircraftParameters()
     p.configuration = ConfigurationParams(**vars(config))
+    _set(p, "structure.limit_load_factor", getattr(mission, "g_limit", 2.5))  # structure sized for the g rating
     layout = config.layout
     jet = config.propulsion == "turbofan"
     tailless = layout in ("flying_wing", "blended_wing_body")
@@ -702,7 +706,7 @@ def aerobatic_mission(**overrides) -> MissionRequirements:
     """A stunt-plane mission: one or two pilots, unlimited-category aerobatics (Extra 330 class)."""
     base = dict(name="Aerobatic (stunt plane)", payload_kg=180.0, range_km=600.0, cruise_mach=0.25,
                 cruise_altitude_m=2500.0, takeoff_field_m=500.0, max_approach_speed_ms=38.0, max_span_m=9.0,
-                propulsion="turboprop", category="aerobatic", max_flyover_db=95.0, max_cabin_dba=100.0)
+                propulsion="turboprop", category="aerobatic", max_flyover_db=95.0, max_cabin_dba=95.0, g_limit=10.0)
     base.update(overrides)
     return MissionRequirements(**base)
 
@@ -725,7 +729,8 @@ def _size_aerobatic(mission: MissionRequirements, config: ConfigurationParams) -
         "wing.camber": 0.0, "wing.x_position": 0.27, "wing.crank_eta": 0.0,
         "controls.aileron_start": 0.12, "controls.aileron_end": 0.97, "controls.aileron_chord": 0.30,
         "controls.flap_end": 0.0, "controls.elevator_chord": 0.35, "controls.rudder_chord": 0.35,
-        "structure.limit_load_factor": 10.0, "structure.safety_factor": 1.5, "structure.insulation_kg_m2": 0.0,
+        "structure.limit_load_factor": getattr(mission, "g_limit", 10.0), "structure.safety_factor": 1.5,
+        "structure.insulation_kg_m2": 0.0,
         "engines.count": 1, "htail.sweep_le_deg": 5.0, "htail.taper_ratio": 0.6, "htail.dihedral_deg": 0.0,
         "htail.x_position": 0.80, "vtail.sweep_le_deg": 25.0, "vtail.taper_ratio": 0.6, "vtail.x_position": 0.84,
         "gear.wheels_per_leg": 1,

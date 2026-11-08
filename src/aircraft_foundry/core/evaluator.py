@@ -41,15 +41,23 @@ class Constraint:
     lower: float = -math.inf
     upper: float = math.inf
     unit: str = ""
+    enforced: bool = True  # False: the user chose not to design around this requirement
 
     @property
     def satisfied(self) -> bool:
+        if not self.enforced:
+            return True
+        return self.lower - 1e-9 <= self.value <= self.upper + 1e-9
+
+    @property
+    def met(self) -> bool:
+        """Whether the value is within limits, regardless of enforcement (for reporting ignored ones)."""
         return self.lower - 1e-9 <= self.value <= self.upper + 1e-9
 
     @property
     def violation(self) -> float:
         """Normalised amount by which the constraint is violated (0 if satisfied)."""
-        if not np.isfinite(self.value):  # e.g. clearance to a propeller that does not exist
+        if not self.enforced or not np.isfinite(self.value):  # ignored, or e.g. a propeller that does not exist
             return 0.0
         if self.value < self.lower:
             return (self.lower - self.value) / max(abs(self.lower), 1e-3)
@@ -205,6 +213,9 @@ class _Model:
         if not self.supersonic or self.m.overland_fraction <= 0:
             return M, "same as cruise"
         level = self.boom_pldb(weight_n)
+        from .mission import ignored_requirements
+        if "boom" in ignored_requirements(self.m):
+            return M, f"sonic boom over land not considered: cruise Mach overland (boom {level:.0f} PLdB)"
         if level <= self.m.max_boom_pldb:
             return M, f"supersonic overland: boom {level:.0f} PLdB within the {self.m.max_boom_pldb:.0f} PLdB limit"
         mc = sb.mach_cutoff(self.m.cruise_altitude_m)
@@ -317,6 +328,7 @@ class _Model:
         }
         if self.light_aircraft:
             out.update(self.light_aircraft_weights(w0, out))
+        self.apply_strength(out)
         if arr.layout == "blended_wing_body":
             # The pressurised cabin lives in the centre-body.  Approximation: the outer
             # wing panels by Raymer's wing equation, plus a non-circular pressure shell
@@ -336,6 +348,33 @@ class _Model:
                                     self.fuselage_load_args(w0, out))
             out["wing"], out["fuselage"] = sm["wing_total"], sm["fuselage_total"]
         return out
+
+    def apply_strength(self, out: dict) -> None:
+        """Per-component strength reserve and material choice.
+
+        Structure sized for k x the load is heavier by roughly k^n (n from the statistical load
+        exponents: wing ~0.55, tails ~0.45, gear ~0.7, fuselage ~0.3 - much of a fuselage is sized by
+        pressure, handling and fatigue rather than flight load).  A stronger-for-its-weight material
+        (higher strength / density than the default aluminium) makes the wing and fuselage lighter.
+        """
+        from ..numerics.materials import material
+        st = self.p.structure
+
+        def specific(name):
+            mt = material(name)
+            return mt.ftu * mt.tension_knockdown / mt.density
+        f_wing = (specific("Al 7075-T6") / specific(st.wing_material)) ** 0.6
+        f_fus = (specific("Al 2024-T3") / specific(st.fuselage_material)) ** 0.5
+        if "wing" in out:
+            out["wing"] *= st.wing_strength ** 0.55 * f_wing
+        if "fuselage" in out:
+            out["fuselage"] *= st.fuselage_strength ** 0.3 * f_fus
+        for k in ("horizontal_tail", "vertical_tail"):
+            if k in out:
+                out[k] *= st.tail_strength ** 0.45 * f_wing
+        for k in ("main_gear", "nose_gear"):
+            if k in out:
+                out[k] *= st.gear_strength ** 0.7
 
     def light_aircraft_weights(self, w0: float, transport: dict) -> dict:
         """Raymer's general-aviation equations (transport statistics badly overestimate light aircraft)."""
@@ -629,12 +668,14 @@ def evaluate(params: AircraftParameters, mission: MissionRequirements) -> Evalua
         cons.append(Constraint("Roll rate at manoeuvring speed", roll, lower=240.0, unit="deg/s"))
         cons.append(Constraint("Static thrust / weight", tw_static, lower=0.45))
         cons.append(Constraint("Symmetric aerofoil (inverted flight)", p.wing.camber, upper=0.005))
-        cons.append(Constraint("Aerobatic g rating", n_lim, lower=6.0, unit="g"))
         notes.append(f"Aerobatic: ±{n_lim:.0f} g, roll rate {roll:.0f}°/s at {v_a * 1.944:.0f} kt "
                      f"(Extra 330: ±10 g, ~400°/s); static thrust/weight {tw_static:.2f}.")
         extra_metrics = {"roll_rate_deg_s": roll, "manoeuvring_speed_ms": v_a, "static_tw": tw_static}
     else:
         extra_metrics = {}
+    cons.append(Constraint("G rating", p.structure.limit_load_factor, lower=getattr(m, "g_limit", 2.5), unit="g"))
+    extra_metrics["wing_failure_g"] = (p.structure.limit_load_factor * p.structure.safety_factor
+                                       * p.structure.wing_strength)
     if n > 1:
         cons.append(Constraint("OEI climb gradient", oei_gradient, lower=oei_required))
     else:
@@ -686,6 +727,13 @@ def evaluate(params: AircraftParameters, mission: MissionRequirements) -> Evalua
     ]
 
     objective = w0 if m.objective == "min_mtow" else trip_fuel * 8.0
+    from .mission import REQUIREMENT_OF, ignored_requirements
+    ignored = ignored_requirements(m)
+    for c in cons:  # requirements the user switched off: reported, but not designed around
+        if REQUIREMENT_OF.get(c.name) in ignored:
+            c.enforced = False
+    if ignored:
+        notes.append("Not designed around: " + ", ".join(sorted(ignored)) + ".")
     penalty = sum(c.violation for c in cons)
     score = objective * (1 + 4 * penalty)
     metrics = {

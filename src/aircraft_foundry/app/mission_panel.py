@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSpinBox,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
+                               QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
-from ..core.mission import MissionRequirements, mission_specs
+from ..core.mission import REQUIREMENTS, MissionRequirements, ignored_requirements, mission_specs
 from .forms import changed_signal, get_value, make_editor, set_value
 
 
@@ -49,6 +49,23 @@ class MissionPanel(QScrollArea):
         self.derived.setStyleSheet("color: palette(mid);")
         form.addRow(self.derived)
         lay.addWidget(box)
+        req = QGroupBox("Design around these requirements")
+        req.setToolTip("Untick anything you don't care about: the design will not be sized around it.
+"
+                       "Stability, trim, structure and landing-gear checks always stay on.")
+        rg = QGridLayout(req)
+        self.req_boxes: dict[str, QCheckBox] = {}
+        for i, (key, label, _) in enumerate(REQUIREMENTS):
+            cb = QCheckBox(label)
+            cb.setChecked(True)
+            cb.toggled.connect(self._on_changed)
+            self.req_boxes[key] = cb
+            rg.addWidget(cb, i // 2, i % 2)
+        note = QLabel("Always checked: stability, tail sizing, trim, structure, landing gear, clearances.")
+        note.setObjectName("hint")
+        note.setWordWrap(True)
+        rg.addWidget(note, (len(REQUIREMENTS) + 1) // 2, 0, 1, 2)
+        lay.addWidget(req)
 
         gen = QGroupBox("Aircraft generation")
         gf = QFormLayout(gen)
@@ -93,11 +110,17 @@ class MissionPanel(QScrollArea):
         for name, w in self.editors.items():
             v = get_value(w)
             setattr(m, name, v)
+        m.ignore = ",".join(k for k, cb in self.req_boxes.items() if not cb.isChecked())
         return m
 
     def set_mission(self, m: MissionRequirements) -> None:
         for name, w in self.editors.items():
             set_value(w, getattr(m, name))
+        ignored = ignored_requirements(m)
+        for key, cb in self.req_boxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(key not in ignored)
+            cb.blockSignals(False)
         self._update_derived()
 
     def set_busy(self, busy: bool) -> None:
