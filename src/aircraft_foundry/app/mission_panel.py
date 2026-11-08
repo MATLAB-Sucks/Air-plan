@@ -35,6 +35,15 @@ class MissionPanel(QScrollArea):
             self.editors[name] = w
             form.addRow(meta.get("label", name), w)
         changed_signal(self.editors["name"]).connect(self._on_changed)
+        stunt = QPushButton("Stunt plane preset (aerobatic, ±10 g)")
+        stunt.setToolTip("One or two pilots, unlimited-category aerobatics: Extra 330 class")
+        stunt.clicked.connect(self.load_stunt_preset)
+        airliner = QPushButton("Airliner preset")
+        airliner.clicked.connect(lambda: (self.set_mission(MissionRequirements()), self._on_changed()))
+        prow = QHBoxLayout()
+        prow.addWidget(stunt)
+        prow.addWidget(airliner)
+        form.addRow(prow)
         self.derived = QLabel()
         self.derived.setWordWrap(True)
         self.derived.setStyleSheet("color: palette(mid);")
@@ -73,6 +82,11 @@ class MissionPanel(QScrollArea):
         lay.addStretch(1)
         self.setWidget(body)
         self._update_derived()
+
+    def load_stunt_preset(self) -> None:
+        from ..core.synthesis import aerobatic_mission
+        self.set_mission(aerobatic_mission())
+        self._on_changed()
 
     def mission(self) -> MissionRequirements:
         m = MissionRequirements()

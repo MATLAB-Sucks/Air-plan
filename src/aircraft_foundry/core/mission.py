@@ -30,6 +30,8 @@ class MissionRequirements:
     max_cabin_dba: float = p(82.0, 65.0, 95.0, "dB(A)", "Max cabin noise for passengers")
     passenger_mass_kg: float = p(100.0, 70.0, 130.0, "kg", "Mass per passenger incl. bags")
     seat_pitch_m: float = p(0.79, 0.7, 1.0, "m", "Seat pitch")
+    # "aerobatic" = stunt plane: +-10 g, roll-rate and power requirements, symmetric wing, light-aircraft rules
+    category: str = choice("transport", ("transport", "aerobatic"), "Aircraft category")
     notes: str = field(default="")
 
     # ------------------------------------------------------------ derived requirements
@@ -40,6 +42,8 @@ class MissionRequirements:
     @property
     def seats_abreast(self) -> int:
         n = self.passengers
+        if getattr(self, "category", "transport") == "aerobatic":
+            return 1  # tandem cockpit (Extra 300 / Pitts style)
         if n <= 2:
             return n
         abreast = int(min(9, max(2, round(0.45 * math.sqrt(n)))))

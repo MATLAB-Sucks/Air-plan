@@ -45,7 +45,7 @@ if sys.platform == "darwin":
         name="Aircraft Foundry.app",
         bundle_identifier="com.aircraftfoundry.app",
         info_plist={
-            "CFBundleShortVersionString": "0.6.0",
+            "CFBundleShortVersionString": "0.7.0",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
             "CFBundleDocumentTypes": [{"CFBundleTypeName": "Aircraft Foundry Project",

@@ -599,6 +599,10 @@ class Arrangement:
         out: list[EngineInstance] = []
         pairs = max(1, int(round(e.count / 2)))
         layout = cfg.engine_layout
+        if layout == "nose":  # single tractor propeller: engine buried in the nose, propeller ahead of it
+            inlet = np.array([0.04 * fus.length, 0.0, float(fus.centre_z(0.0))])
+            return [EngineInstance(1, 1, "fuselage", inlet, min(d, 0.9 * fus.diameter), length, dp, 0.0,
+                                   inlet.copy(), pusher=False)]
         if layout == "pusher" and e.count == 1:
             if cfg.propulsion == "turboprop":  # engine in the tail cone, propeller behind it
                 x_in = fus.length - 0.55 * length

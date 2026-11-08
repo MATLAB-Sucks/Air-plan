@@ -15,6 +15,16 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.7:**
+
+* **Stunt planes:** an aerobatic category with ±10 g structure, a symmetric
+  wing, near-full-span ailerons, big tails and a nose propeller, sized to the
+  Extra 330 class.
+* Light-aircraft weight equations, and structure that now follows each
+  design's own g rating.
+
+See [docs/AEROBATIC.md](docs/AEROBATIC.md).
+
 **New in 0.6:**
 
 * **Design studio:** drag and resize parts, add tails and engines, resize
@@ -98,7 +108,7 @@ python -m aircraft_foundry
 To check the install:
 
 ```bash
-pytest                                   # 155 tests; the GUI test is skipped unless AF_GUI_TESTS=1
+pytest                                   # 161 tests; the GUI test is skipped unless AF_GUI_TESTS=1
 AF_GUI_TESTS=1 pytest tests/test_gui.py  # drives the real window: generate, edit, pick, evolve, save
 python -m aircraft_foundry --self-test   # opens, renders, evaluates, then exits
 ```

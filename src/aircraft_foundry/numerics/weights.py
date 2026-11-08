@@ -86,3 +86,59 @@ def systems_and_equipment(w0_kg: float) -> float:
     and ~0.12 W0 at 350 t, consistent with published group weights.
     """
     return 13300.0 * (w0_kg / 78000.0) ** 0.75
+
+
+# ---------------------------------------------------------------------------------------------
+# General-aviation equations (Raymer 15.46-15.58) for light aircraft (stunt planes, light props).
+# Imperial inside, SI outside.  q is cruise dynamic pressure (Pa).
+
+def _psf(q_pa: float) -> float:
+    return q_pa * 0.0208854
+
+
+def ga_wing_weight(wdg_kg, nz, area, ar, tc, taper, sweep_qc, q_pa, wing_fuel_kg) -> float:
+    c = np.cos(sweep_qc)
+    lb = (0.036 * (area * M22FT2) ** 0.758 * max(wing_fuel_kg * KG2LB, 1.0) ** 0.0035 * (ar / c ** 2) ** 0.6
+          * _psf(q_pa) ** 0.006 * max(taper, 0.05) ** 0.04 * (100 * tc / c) ** -0.3 * (nz * wdg_kg * KG2LB) ** 0.49)
+    return lb * LB2KG
+
+
+def ga_htail_weight(wdg_kg, nz, area, ar, sweep_qc, tc, taper, q_pa) -> float:
+    c = np.cos(sweep_qc)
+    lb = (0.016 * (nz * wdg_kg * KG2LB) ** 0.414 * _psf(q_pa) ** 0.168 * (area * M22FT2) ** 0.896
+          * (100 * tc / c) ** -0.12 * (ar / c ** 2) ** 0.043 * max(taper, 0.05) ** -0.02)
+    return lb * LB2KG
+
+
+def ga_vtail_weight(wdg_kg, nz, area, ar, sweep_qc, tc, taper, q_pa, t_tail=False) -> float:
+    c = np.cos(sweep_qc)
+    lb = (0.073 * (1 + 0.2 * (1.0 if t_tail else 0.0)) * (nz * wdg_kg * KG2LB) ** 0.376 * _psf(q_pa) ** 0.122
+          * (area * M22FT2) ** 0.873 * (100 * tc / c) ** -0.49 * (ar / c ** 2) ** 0.357 * max(taper, 0.05) ** 0.039)
+    return lb * LB2KG
+
+
+def ga_fuselage_weight(wdg_kg, nz, wetted, tail_arm, length, depth, q_pa) -> float:
+    lb = (0.052 * (wetted * M22FT2) ** 1.086 * (nz * wdg_kg * KG2LB) ** 0.177 * (tail_arm * M2FT) ** -0.051
+          * (length / max(depth, 0.3)) ** -0.072 * _psf(q_pa) ** 0.241)
+    return lb * LB2KG
+
+
+def ga_gear_weight(wl_kg, main_strut_m, nose_strut_m, n_land=4.5) -> tuple[float, float]:
+    main = 0.095 * (n_land * wl_kg * KG2LB) ** 0.768 * (main_strut_m * M2IN / 12) ** 0.409
+    nose = 0.125 * (n_land * wl_kg * KG2LB) ** 0.566 * (nose_strut_m * M2IN / 12) ** 0.845
+    return main * LB2KG, nose * LB2KG
+
+
+def ga_systems_weight(wdg_kg, nz, fuel_kg, length, span, n_engines, avionics_kg=18.0) -> float:
+    """Fuel system, flight controls, hydraulics, avionics and electrical (light aircraft)."""
+    gal = fuel_kg / 0.8 / 3.785
+    fuel_sys = 2.49 * max(gal, 1.0) ** 0.726 * 0.5 ** 0.363 * 2 ** 0.242 * n_engines ** 0.157
+    controls = 0.053 * (length * M2FT) ** 1.536 * (span * M2FT) ** 0.371 * (nz * wdg_kg * KG2LB * 1e-4) ** 0.80
+    hyd = 0.001 * wdg_kg * KG2LB
+    av = 2.117 * (avionics_kg * KG2LB) ** 0.933
+    elec = 12.57 * (fuel_sys + av) ** 0.51
+    return (fuel_sys + controls + hyd + av + elec) * LB2KG
+
+
+def ga_furnishings_weight(wdg_kg) -> float:
+    return max(0.0, 0.0582 * wdg_kg * KG2LB - 65) * LB2KG

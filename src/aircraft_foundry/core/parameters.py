@@ -30,7 +30,7 @@ LAYOUTS = ("conventional", "canard", "flying_wing", "blended_wing_body", "twin_b
 @dataclass
 class ConfigurationParams:
     propulsion: str = choice("turbofan", ("turbofan", "turboprop"), "Propulsion")
-    engine_layout: str = choice("wing", ("wing", "rear_fuselage", "upper_aft", "pusher", "under_wing"),
+    engine_layout: str = choice("wing", ("wing", "rear_fuselage", "upper_aft", "pusher", "under_wing", "nose"),
                                 "Engine layout")
     tail_type: str = choice("conventional", ("conventional", "t_tail", "v_tail", "twin_fin", "none"), "Tail type")
     wing_position: str = choice("low", ("low", "mid", "high"), "Wing position")
@@ -111,16 +111,16 @@ class GearParams:
 class ControlSurfaceParams:
     """Movable surfaces.  Spanwise stations are fractions of the semi-span (eta);
     chords are fractions of the local chord, measured forward from the trailing edge."""
-    aileron_start: float = p(0.72, 0.4, 0.9, "eta", "Aileron inboard end", step=0.01)
+    aileron_start: float = p(0.72, 0.1, 0.9, "eta", "Aileron inboard end", step=0.01)
     aileron_end: float = p(0.95, 0.6, 0.98, "eta", "Aileron outboard end", step=0.01)
-    aileron_chord: float = p(0.25, 0.15, 0.40, "c", "Aileron chord", step=0.01)
+    aileron_chord: float = p(0.25, 0.15, 0.50, "c", "Aileron chord", step=0.01)
     aileron_deflection_deg: float = p(0.0, -25.0, 25.0, "deg", "Aileron deflection (TE down +)", step=1)
-    flap_end: float = p(0.68, 0.3, 0.85, "eta", "Flap outboard end", step=0.01)
+    flap_end: float = p(0.68, 0.0, 0.85, "eta", "Flap outboard end (0 = no flaps)", step=0.01)
     flap_chord: float = p(0.30, 0.15, 0.40, "c", "Flap chord", step=0.01)
     flap_deflection_deg: float = p(0.0, 0.0, 45.0, "deg", "Flap deflection", step=1)
-    elevator_chord: float = p(0.30, 0.15, 0.45, "c", "Elevator chord", step=0.01)
+    elevator_chord: float = p(0.30, 0.15, 0.60, "c", "Elevator chord", step=0.01)
     elevator_deflection_deg: float = p(0.0, -25.0, 25.0, "deg", "Elevator deflection (TE down +)", step=1)
-    rudder_chord: float = p(0.30, 0.15, 0.45, "c", "Rudder chord", step=0.01)
+    rudder_chord: float = p(0.30, 0.15, 0.60, "c", "Rudder chord", step=0.01)
     rudder_deflection_deg: float = p(0.0, -30.0, 30.0, "deg", "Rudder deflection (TE to port +)", step=1)
 
 
@@ -131,7 +131,7 @@ MATERIALS = ("Al 7075-T6", "Al 2024-T3", "Al-Li 2099-T83", "Ti-6Al-4V", "CFRP qu
 class StructureParams:
     wing_material: str = choice("Al 7075-T6", MATERIALS, "Wing box material")
     fuselage_material: str = choice("Al 2024-T3", MATERIALS, "Fuselage shell material")
-    limit_load_factor: float = p(2.5, 2.0, 4.5, "g", "Limit manoeuvre load factor", step=0.1)
+    limit_load_factor: float = p(2.5, 2.0, 12.0, "g", "Limit manoeuvre load factor", step=0.1)
     safety_factor: float = p(1.5, 1.25, 2.0, "", "Ultimate safety factor", step=0.05)
     min_gauge_mm: float = p(1.0, 0.5, 3.0, "mm", "Minimum skin gauge", step=0.1)
     cabin_altitude_m: float = p(2438.0, 0.0, 3000.0, "m", "Cabin pressure altitude", step=50)

@@ -35,6 +35,10 @@ def _C(prop, engines, tail, wing, layout="conventional") -> ConfigurationParams:
 
 def configurations_for(mission: MissionRequirements) -> list[ConfigurationParams]:
     """Every layout worth sizing for this mission (topology is chosen here, then held fixed)."""
+    if getattr(mission, "category", "transport") == "aerobatic":
+        # stunt planes: single tractor propeller in the nose, conventional tail (low- or mid-wing)
+        return [_C("turboprop", "nose", "conventional", "low"), _C("turboprop", "nose", "conventional", "mid"),
+                _C("turboprop", "nose", "t_tail", "mid")]
     if mission.propulsion == "auto":
         if mission.cruise_mach < 0.5:
             props = ["turboprop"]
@@ -408,6 +412,8 @@ def _size_bwb_centrebody(p: AircraftParameters, mission: MissionRequirements, S:
 
 def baseline(mission: MissionRequirements, config: ConfigurationParams) -> AircraftParameters:
     """Initial sizing of one configuration (layout + propulsion) from the mission requirements."""
+    if getattr(mission, "category", "transport") == "aerobatic":
+        return _size_aerobatic(mission, config)
     p = AircraftParameters()
     p.configuration = ConfigurationParams(**vars(config))
     layout = config.layout
@@ -689,4 +695,70 @@ def _size_supersonic(p: AircraftParameters, mission: MissionRequirements, config
         if not changed:
             break
         complete_design(p, mission)
+    return p
+
+
+def aerobatic_mission(**overrides) -> MissionRequirements:
+    """A stunt-plane mission: one or two pilots, unlimited-category aerobatics (Extra 330 class)."""
+    base = dict(name="Aerobatic (stunt plane)", payload_kg=180.0, range_km=600.0, cruise_mach=0.25,
+                cruise_altitude_m=2500.0, takeoff_field_m=500.0, max_approach_speed_ms=38.0, max_span_m=9.0,
+                propulsion="turboprop", category="aerobatic", max_flyover_db=95.0, max_cabin_dba=100.0)
+    base.update(overrides)
+    return MissionRequirements(**base)
+
+
+def _size_aerobatic(mission: MissionRequirements, config: ConfigurationParams) -> AircraftParameters:
+    """Stunt plane: symmetric wing, near-full-span ailerons, big tail and controls, +-10 g, high power.
+
+    Starting proportions follow unlimited-category aerobatic aircraft (Extra 330, Sukhoi Su-26):
+    wing aspect ratio ~5.6, wing loading ~85 kg/m^2, static thrust ~60 % of weight, tail areas
+    ~30 % (horizontal) and ~14 % (vertical) of the wing (35 %-chord elevator and rudder).  Wing area and thrust are then iterated
+    until the weight closes with the light-aircraft statistics.
+    """
+    p = AircraftParameters()
+    p.configuration = ConfigurationParams(**vars(config))
+    sets = {
+        "fuselage.length": 7.0, "fuselage.diameter": 1.05, "fuselage.height_ratio": 1.15, "fuselage.nose_fraction": 0.2,
+        "fuselage.tail_fraction": 0.45, "fuselage.tail_upsweep": 0.1,
+        "wing.taper_ratio": 0.5, "wing.sweep_le_deg": 3.0, "wing.inner_sweep_le_deg": 3.0, "wing.dihedral_deg": 0.0,
+        "wing.twist_tip_deg": 0.0, "wing.incidence_deg": 0.0, "wing.tc_root": 0.16, "wing.tc_tip": 0.12,
+        "wing.camber": 0.0, "wing.x_position": 0.27, "wing.crank_eta": 0.0,
+        "controls.aileron_start": 0.12, "controls.aileron_end": 0.97, "controls.aileron_chord": 0.30,
+        "controls.flap_end": 0.0, "controls.elevator_chord": 0.35, "controls.rudder_chord": 0.35,
+        "structure.limit_load_factor": 10.0, "structure.safety_factor": 1.5, "structure.insulation_kg_m2": 0.0,
+        "engines.count": 1, "htail.sweep_le_deg": 5.0, "htail.taper_ratio": 0.6, "htail.dihedral_deg": 0.0,
+        "htail.x_position": 0.80, "vtail.sweep_le_deg": 25.0, "vtail.taper_ratio": 0.6, "vtail.x_position": 0.84,
+        "gear.wheels_per_leg": 1,
+    }
+    for k, v in sets.items():
+        try:
+            p.set(k, v)
+        except Exception:
+            pass
+    mtow = 950.0
+    from .evaluator import evaluate as _evaluate
+    for _ in range(8):
+        S = mtow / 85.0
+        span = min(math.sqrt(5.6 * S), 0.995 * mission.max_span_m)
+        _shape_wing(p, mission, S, span)
+        sh, sv = 0.30 * S, 0.14 * S  # big tails: control power with hinges behind the tail spar
+        hspan = math.sqrt(4.0 * sh)
+        _set(p, "htail.span", hspan)
+        _set(p, "htail.root_chord", 2 * sh / (hspan * 1.6))
+        vh = math.sqrt(1.4 * sv)
+        _set(p, "vtail.span", vh)
+        _set(p, "vtail.root_chord", 2 * sv / (vh * 1.6))
+        _set(p, "engines.thrust_kn", 0.6 * mtow * G0 / 1000.0)
+        _set(p, "fuselage.length", float(np.clip(5.0 + 2.2 * span / 8.0, 6.0, 9.5)))
+        complete_design(p, mission)
+        place_wing_for_stability(p, mission)  # nose engine + big tail: put the wing where the CG works
+        complete_design(p, mission)
+        ev = _evaluate(p, mission)
+        if not ev.converged:
+            break
+        new = ev.metrics["mtow_kg"]
+        if abs(new - mtow) < 2.0:
+            mtow = new
+            break
+        mtow = 0.5 * mtow + 0.5 * new
     return p

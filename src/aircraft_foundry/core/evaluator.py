@@ -262,9 +262,9 @@ class _Model:
             arm = abs(ps.x_ac - arr.x_ac_wing)
             if ps.role in ("htail", "canard", "v_tail"):
                 key = "canard" if ps.role == "canard" else "horizontal_tail"
-                out[key] += wt.htail_weight(w0, NZ_ULT, t.area, arm, t.aspect_ratio, t.sweep_at(0.25))
+                out[key] += wt.htail_weight(w0, self.nz_ult, t.area, arm, t.aspect_ratio, t.sweep_at(0.25))
             else:  # fin
-                out["vertical_tail"] += wt.vtail_weight(w0, NZ_ULT, t.area, arm, t.aspect_ratio, t.sweep_at(0.25),
+                out["vertical_tail"] += wt.vtail_weight(w0, self.nz_ult, t.area, arm, t.aspect_ratio, t.sweep_at(0.25),
                                                         t.tc_root, arr.is_t_tail)
         for body in arr.bodies:
             if body.role == "boom":
@@ -283,6 +283,18 @@ class _Model:
                 acc.setdefault("booms", []).append((body.offset[0] + 0.5 * body.shape.length, 1.0))
         return {k: float(np.average([x for x, _ in v], weights=[a for _, a in v])) for k, v in acc.items()}
 
+    @property
+    def nz_ult(self) -> float:
+        """Ultimate load factor of *this* design (limit x safety factor): 3.75 for airliners, 15 for +10 g stunt planes."""
+        return self.p.structure.limit_load_factor * self.p.structure.safety_factor
+
+    @property
+    def light_aircraft(self) -> bool:
+        """Light-aircraft weight statistics: aerobatic designs and small propeller aircraft."""
+        m = self.m
+        return getattr(m, "category", "transport") == "aerobatic" or (
+            self.prop == "turboprop" and m.payload_kg <= 1000 and m.cruise_mach <= 0.45)
+
     def group_weights(self, w0: float) -> dict:
         p, arr = self.p, self.arr
         fus = arr.fuselage
@@ -290,10 +302,10 @@ class _Model:
         vs = math.sqrt(2 * w_land * G0 / (RHO0 * self.S * self.clmax_land))
         legs = {g.name: g for g in arr.gear}
         out = {
-            "wing": wt.wing_weight(w0, NZ_ULT, self.S, self.AR, self.tc_mac, p.wing.taper_ratio, self.sweep_qc,
+            "wing": wt.wing_weight(w0, self.nz_ult, self.S, self.AR, self.tc_mac, p.wing.taper_ratio, self.sweep_qc,
                                    self.wing_control_area),
             **self.tail_weights(w0),
-            "fuselage": wt.fuselage_weight(w0, NZ_ULT, fus.length, fus.diameter, fus.wetted_area(), self.b,
+            "fuselage": wt.fuselage_weight(w0, self.nz_ult, fus.length, fus.diameter, fus.wetted_area(), self.b,
                                            p.wing.taper_ratio, self.sweep_qc,
                                            p.configuration.wing_position == "high"),
             "main_gear": wt.main_gear_weight(w_land, legs["main_right"].strut_length, legs["main_right"].wheels, vs),
@@ -303,25 +315,83 @@ class _Model:
             "furnishings_and_operator_items": wt.furnishings_and_operator_items(self.m.passengers),
             "acoustic_insulation": p.structure.insulation_kg_m2 * self.cabin_wall_area(),
         }
+        if self.light_aircraft:
+            out.update(self.light_aircraft_weights(w0, out))
         if arr.layout == "blended_wing_body":
             # The pressurised cabin lives in the centre-body.  Approximation: the outer
             # wing panels by Raymer's wing equation, plus a non-circular pressure shell
             # 15 % heavier than the equivalent tube fuselage for the same cabin.
             w = arr.wing
             s_out = 2 * w.strip_area(w.crank_eta, 1.0) if w.cranked else self.S
-            out["wing"] = wt.wing_weight(w0, NZ_ULT, s_out, self.AR, self.tc_mac, p.wing.taper_ratio, self.sweep_qc,
+            out["wing"] = wt.wing_weight(w0, self.nz_ult, s_out, self.AR, self.tc_mac, p.wing.taper_ratio, self.sweep_qc,
                                          self.wing_control_area)
             m = self.m
             l_eq = m.cabin_length_m / (1 - 0.55 * 0.12 - 0.65 * 0.26)
             d_eq = m.fuselage_diameter_m
             wet_eq = math.pi * d_eq * l_eq * 0.8
-            out["centrebody_pressure_shell"] = 1.15 * wt.fuselage_weight(w0, NZ_ULT, l_eq, d_eq, wet_eq, self.b,
+            out["centrebody_pressure_shell"] = 1.15 * wt.fuselage_weight(w0, self.nz_ult, l_eq, d_eq, wet_eq, self.b,
                                                                          p.wing.taper_ratio, self.sweep_qc, False)
         if self.structural_weights:  # replace the statistical wing/fuselage with sized structure
             sm = self.struct.masses(w0, self.fuel(w0)[0], out["wing"], self.engine_mass_each(),
                                     self.fuselage_load_args(w0, out))
             out["wing"], out["fuselage"] = sm["wing_total"], sm["fuselage_total"]
         return out
+
+    def light_aircraft_weights(self, w0: float, transport: dict) -> dict:
+        """Raymer's general-aviation equations (transport statistics badly overestimate light aircraft)."""
+        p, arr = self.p, self.arr
+        fus = arr.fuselage
+        nz = self.nz_ult
+        q = self.q
+        fuel = self.fuel(w0)[0]
+        out = {"wing": wt.ga_wing_weight(w0, nz, self.S, self.AR, self.tc_mac, p.wing.taper_ratio, self.sweep_qc,
+                                         q, fuel)}
+        ht = vt = 0.0
+        for ps in arr.surfaces:
+            if ps.role == "wing":
+                continue
+            t = ps.surface
+            area = ps.area
+            if t.vertical:
+                vt += wt.ga_vtail_weight(w0, nz, area, t.aspect_ratio, t.sweep_at(0.25), 0.11, 0.6, q,
+                                         arr.is_t_tail)
+            else:
+                ht += wt.ga_htail_weight(w0, nz, area, t.aspect_ratio, t.sweep_at(0.25), 0.10, 0.6, q)
+        if "horizontal_tail" in transport:
+            out["horizontal_tail"] = ht
+        if "vertical_tail" in transport:
+            out["vertical_tail"] = vt
+        tail_arm = max(fus.length * 0.5, 1.0)
+        out["fuselage"] = wt.ga_fuselage_weight(w0, nz, fus.wetted_area(), tail_arm, fus.length, fus.diameter, q)
+        legs = {g.name: g for g in arr.gear}
+        main, nose = wt.ga_gear_weight(0.95 * w0, legs["main_right"].strut_length, legs["nose"].strut_length)
+        out["main_gear"], out["nose_gear"] = main, nose
+        out["systems_and_equipment"] = wt.ga_systems_weight(w0, nz, fuel, fus.length, self.b, self.n_eng)
+        out["furnishings_and_operator_items"] = wt.ga_furnishings_weight(w0)
+        out["acoustic_insulation"] = 0.0 if getattr(self.m, "category", "") == "aerobatic" else \
+            transport.get("acoustic_insulation", 0.0)
+        out["engines_installed"] = 1.35 * self.n_eng * wt.engine_dry_weight(p.engines.thrust_kn, self.prop)
+        return out
+
+    def roll_rate_deg_s(self, speed: float, max_deflection_deg: float = 20.0) -> float:
+        """Steady roll rate at full aileron (strip theory, Raymer 16.6): Clda / Clp."""
+        w = self.arr.wing
+        cla = self.cla_low_speed if hasattr(self, "cla_low_speed") else 2 * math.pi * self.AR / (
+            2 + math.sqrt(4 + self.AR ** 2 * (1 + math.tan(w.sweep_at(0.5)) ** 2)))
+        clda = 0.0
+        for cs in self.arr.control_surfaces:
+            if cs.surface != "wing" or cs.kind not in ("aileron", "elevon_outer"):
+                continue
+            th = math.acos(2 * cs.chord_fraction - 1)
+            tau = 1 - (th - math.sin(th)) / math.pi
+            etas = np.linspace(cs.eta0, cs.eta1, 20)
+            ys = etas * w.semi_span
+            cs_ = np.array([w.chord(e) for e in etas])
+            clda += cla * tau * np.trapezoid(cs_ * ys, ys) / (self.S * self.b)
+        lam = self.p.wing.taper_ratio
+        clp = -cla / 12 * (1 + 3 * lam) / (1 + lam)
+        p_hat = clda * math.radians(max_deflection_deg) / max(-clp, 1e-6)
+        return math.degrees(p_hat * 2 * speed / self.b)
 
     def cabin_wall_area(self) -> float:
         fus = self.arr.fuselage
@@ -550,6 +620,21 @@ def evaluate(params: AircraftParameters, mission: MissionRequirements) -> Evalua
             notes.append("Overland: " + over_note + ".")
         if m.overland_fraction > 0 and m_over == M:
             cons.append(Constraint("Sonic boom overland", boom_level, upper=m.max_boom_pldb, unit="PLdB"))
+    if getattr(m, "category", "transport") == "aerobatic":
+        n_lim = p.structure.limit_load_factor
+        vs_clean = math.sqrt(2 * w0 * G0 / (RHO0 * model.S * max(1.1, model.clmax_land - 0.3)))
+        v_a = vs_clean * math.sqrt(n_lim)  # manoeuvring speed: full controls allowed up to here
+        roll = model.roll_rate_deg_s(v_a)
+        tw_static = model.n_eng * p.engines.thrust_kn * 1000 / (w0 * G0)
+        cons.append(Constraint("Roll rate at manoeuvring speed", roll, lower=240.0, unit="deg/s"))
+        cons.append(Constraint("Static thrust / weight", tw_static, lower=0.45))
+        cons.append(Constraint("Symmetric aerofoil (inverted flight)", p.wing.camber, upper=0.005))
+        cons.append(Constraint("Aerobatic g rating", n_lim, lower=6.0, unit="g"))
+        notes.append(f"Aerobatic: ±{n_lim:.0f} g, roll rate {roll:.0f}°/s at {v_a * 1.944:.0f} kt "
+                     f"(Extra 330: ±10 g, ~400°/s); static thrust/weight {tw_static:.2f}.")
+        extra_metrics = {"roll_rate_deg_s": roll, "manoeuvring_speed_ms": v_a, "static_tw": tw_static}
+    else:
+        extra_metrics = {}
     if n > 1:
         cons.append(Constraint("OEI climb gradient", oei_gradient, lower=oei_required))
     else:
@@ -611,7 +696,7 @@ def evaluate(params: AircraftParameters, mission: MissionRequirements) -> Evalua
         "wing_loading_kg_m2": w0 / model.S, "thrust_to_weight": tw,
         "cd0": model.CD0, "oswald_e": model.e, "cruise_cl": cl, "cruise_ld": ld, "ld_max": model.LDmax,
         "mdd": mdd, "cruise_speed_ms": model.V, "landing_weight_fraction": land_frac, "approach_speed_ms": v_app, "takeoff_field_m": tofl,
-        "x_cg_m": x_cg, "x_np_m": x_np, "static_margin": static_margin,
+        "x_cg_m": x_cg, "x_np_m": x_np, "static_margin": static_margin, **extra_metrics,
         "htail_volume": vh, "vtail_volume": vv, "fuel_capacity_kg": fuel_capacity,
         "clmax_landing": model.clmax_land,
         "flyover_noise_db": flyover, "cabin_noise_dba": cabin, "insulation_needed_kg_m2": insulation_needed,
@@ -622,9 +707,9 @@ def evaluate(params: AircraftParameters, mission: MissionRequirements) -> Evalua
                         / (m_over * model.atm.speed_of_sound)) / 3600.0, "flapped_area_fraction": model.flapped_fraction,
         "wing_mass_structural_kg": struct.masses["wing_total"],
         "fuselage_mass_structural_kg": struct.masses["fuselage_total"],
-        "wing_mass_statistical_kg": wt.wing_weight(w0, NZ_ULT, model.S, model.AR, model.tc_mac, p.wing.taper_ratio,
+        "wing_mass_statistical_kg": wt.wing_weight(w0, model.nz_ult, model.S, model.AR, model.tc_mac, p.wing.taper_ratio,
                                                    model.sweep_qc, model.wing_control_area),
-        "fuselage_mass_statistical_kg": wt.fuselage_weight(w0, NZ_ULT, fus.length, fus.diameter, fus.wetted_area(),
+        "fuselage_mass_statistical_kg": wt.fuselage_weight(w0, model.nz_ult, fus.length, fus.diameter, fus.wetted_area(),
                                                            model.b, p.wing.taper_ratio, model.sweep_qc,
                                                            p.configuration.wing_position == "high"),
         "tip_deflection_1g_m": struct.summary["tip_deflection_1g_m"],

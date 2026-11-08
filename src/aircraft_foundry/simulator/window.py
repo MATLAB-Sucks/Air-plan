@@ -115,6 +115,7 @@ class SimulatorWindow(QMainWindow):
         self._log_t = -1.0
         self.wp_add_mode = False
         self.start_runway = HOME
+        self.g_max, self.g_min = 1.0, 1.0
         self.paused = False
         self.camera_mode = "chase"
         self.time_scale = 1.0
@@ -486,6 +487,7 @@ class SimulatorWindow(QMainWindow):
         self._last_wall = None
         self.trail = []
         self.coach.reset(airborne_start=(where == "cruise"))
+        self.g_max, self.g_min = 1.0, 1.0
 
     def _key_pressed(self, key: int):
         c = self.sim.controls
@@ -836,6 +838,11 @@ class SimulatorWindow(QMainWindow):
                          f"{'(fly left)' if r > 10 else '(fly right)' if r < -10 else ''}")
         lines.append(f"FUEL {t['fuel_kg']:7.0f} kg  FLOW {t['fuel_flow_kgh']:6.0f} kg/h  "
                      f"ENDUR {t['fuel_kg'] / max(t['fuel_flow_kgh'], 1) * 60:5.0f} min  DIST {t['distance_km']:6.1f} km")
+        if not t["on_ground"]:
+            self.g_max, self.g_min = max(self.g_max, t["load_factor"]), min(self.g_min, t["load_factor"])
+        lines.append(f"G  now {t['load_factor']:+5.1f}  max {self.g_max:+5.1f}  min {self.g_min:+5.1f}  "
+                     f"(limits {self.model.n_limit:+.1f} / {-self.model.n_negative_limit:+.1f})  "
+                     f"ROLL RATE {math.degrees(self.sim.state[10]):+5.0f}°/s")
         stress = t["stress"]
         bar = "#" * int(min(stress, 1.2) * 20)
         lines.append(f"AIRFRAME STRESS {stress * 100:4.0f}% [{bar:<24s}]")

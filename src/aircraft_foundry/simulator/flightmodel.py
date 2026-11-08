@@ -96,6 +96,7 @@ class AeroModel:
     design_mass: float = 1.0
     q_dive: float = 1e9  # design dive dynamic pressure, Pa
     semi_span: float = 1.0
+    n_negative_limit: float = 1.0  # transports -1 g; unlimited-aerobatic designs are rated symmetrically
 
 
 def build_aero_model(params: AircraftParameters, mission: MissionRequirements, evaluation: Evaluation,
@@ -216,6 +217,8 @@ def build_aero_model(params: AircraftParameters, mission: MissionRequirements, e
                      n_limit=params.structure.limit_load_factor,
                      n_ultimate=params.structure.limit_load_factor * params.structure.safety_factor,
                      design_mass=m["mtow_kg"], semi_span=w.semi_span,
+                     n_negative_limit=(params.structure.limit_load_factor
+                                       if getattr(mission, "category", "transport") == "aerobatic" else 1.0),
                      # design dive speed V_D ~ 1.5 x cruise equivalent airspeed (A320: ~250 KEAS cruise,
                      # V_D ~ 381 KEAS); dynamic pressure is the structural measure
                      q_dive=(1.5 ** 2) * 0.5 * isa(mission.cruise_altitude_m).density * m["cruise_speed_ms"] ** 2)
@@ -462,7 +465,7 @@ class FlightSimulator:
         m0 = n_z * self.mass * G0 / 2 * y_cp  # root bending per side from lift
         dm = 0.5 * f.get("roll_moment", 0.0)  # rolling right loads the left wing more
         cap_pos = md.n_ultimate * md.design_mass * G0 / 2 * y_cp
-        cap_neg = 1.0 * md.n_ultimate / md.n_limit * md.design_mass * G0 / 2 * y_cp  # -1 g limit x SF
+        cap_neg = md.n_negative_limit * md.n_ultimate / md.n_limit * md.design_mass * G0 / 2 * y_cp  # neg. limit x SF
         def util(m):
             return m / cap_pos if m >= 0 else -m / cap_neg
         self.stress = {"left": util(m0 + dm), "right": util(m0 - dm), "q": f["qbar"] / md.q_dive}
@@ -472,7 +475,8 @@ class FlightSimulator:
             if n_z >= 0:
                 limits = f"ultimate {md.n_ultimate:.2f} g, limit {md.n_limit:.1f} g"
             else:
-                limits = f"negative ultimate {-md.n_ultimate / md.n_limit:.1f} g, limit -1.0 g"
+                limits = (f"negative ultimate {-md.n_negative_limit * md.n_ultimate / md.n_limit:.1f} g, "
+                          f"limit {-md.n_negative_limit:.1f} g")
             self.failure_msg = f"STRUCTURAL FAILURE: {side} wing broke at {n_z:.1f} g ({limits})"
         elif self.stress["q"] > 1.21:  # ~10 % beyond V_D
             self.failure = "tail"

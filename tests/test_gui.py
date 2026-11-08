@@ -223,3 +223,18 @@ def test_wind_tunnel_window(app):
                      for i in range(wing["poly"].GetNumberOfPoints())])
     assert vals.max() > 1.0  # above the ultimate load, part of the wing shows as failed
     w.close()
+
+
+def test_studio_stunt_plane_button(app):
+    from aircraft_foundry.app.design_studio import DesignStudioWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    app.processEvents()
+    w.set_layout("aerobatic")
+    w.refresh_analysis()
+    assert w.mission.category == "aerobatic" and w.params.structure.limit_load_factor == 10.0
+    assert w.verdict.flies
+    w.close()
