@@ -1,0 +1,133 @@
+{
+ "format": "aircraft-foundry-design",
+ "format_version": 1,
+ "app_version": "0.3.0",
+ "design": {
+  "id": "old-0p3",
+  "name": "Saved with 0.3",
+  "parameters": {
+   "configuration": {
+    "propulsion": "turbofan",
+    "engine_layout": "wing",
+    "tail_type": "conventional",
+    "wing_position": "low",
+    "layout": "conventional"
+   },
+   "fuselage": {
+    "length": 33.111111111111114,
+    "diameter": 4.07,
+    "height_ratio": 1.05,
+    "nose_fraction": 0.12,
+    "tail_fraction": 0.26,
+    "tail_upsweep": 0.25,
+    "frame_pitch": 0.53,
+    "frame_depth": 0.1521,
+    "longerons": 12,
+    "area_ruling": 0.0,
+    "nose_profile": "elliptic"
+   },
+   "wing": {
+    "span": 35.82,
+    "root_chord": 6.074442930908585,
+    "taper_ratio": 0.25,
+    "sweep_le_deg": 25.423056668841973,
+    "dihedral_deg": 5.0,
+    "twist_tip_deg": -3.0,
+    "incidence_deg": 1.5,
+    "tc_root": 0.15702008461033803,
+    "tc_tip": 0.11122255993232277,
+    "camber": 0.02,
+    "camber_pos": 0.4,
+    "x_position": 0.2782660263827458,
+    "crank_eta": 0.0,
+    "crank_chord_ratio": 1.0,
+    "inner_sweep_le_deg": 27.0,
+    "front_spar": 0.15,
+    "rear_spar": 0.65,
+    "rib_pitch": 0.75,
+    "rib_thickness": 0.04,
+    "spar_thickness": 0.06
+   },
+   "htail": {
+    "span": 12.06925056745155,
+    "root_chord": 3.8870372197911593,
+    "taper_ratio": 0.35,
+    "sweep_le_deg": 30.423056668841973,
+    "dihedral_deg": 5.0,
+    "tc": 0.1,
+    "x_position": 0.8708668843089514,
+    "rib_pitch": 0.6
+   },
+   "vtail": {
+    "span": 6.421053205349949,
+    "root_chord": 5.016447816679647,
+    "taper_ratio": 0.6,
+    "sweep_le_deg": 37.42305666884197,
+    "dihedral_deg": 0.0,
+    "tc": 0.11,
+    "x_position": 0.8454648857725802,
+    "rib_pitch": 0.6
+   },
+   "engines": {
+    "count": 2,
+    "thrust_kn": 141.17177453002085,
+    "span_fraction": 0.34,
+    "spacing_fraction": 0.25,
+    "bypass_ratio": 6.0
+   },
+   "gear": {
+    "nose_x_fraction": 0.04,
+    "main_chord_fraction": 1.0516153071541003,
+    "track": 7.5222,
+    "wheel_diameter": 1.1902292239302417,
+    "ground_clearance": 2.5662285377736493,
+    "wheels_per_leg": 2
+   },
+   "controls": {
+    "aileron_start": 0.72,
+    "aileron_end": 0.95,
+    "aileron_chord": 0.25,
+    "aileron_deflection_deg": 0.0,
+    "flap_end": 0.68,
+    "flap_chord": 0.3,
+    "flap_deflection_deg": 0.0,
+    "elevator_chord": 0.3,
+    "elevator_deflection_deg": 0.0,
+    "rudder_chord": 0.3,
+    "rudder_deflection_deg": 0.0
+   },
+   "structure": {
+    "wing_material": "Al 7075-T6",
+    "fuselage_material": "Al 2024-T3",
+    "limit_load_factor": 2.5,
+    "safety_factor": 1.5,
+    "min_gauge_mm": 1.0,
+    "cabin_altitude_m": 2438.0,
+    "weight_method": "statistical",
+    "insulation_kg_m2": 1.9019518306829717
+   },
+   "booms": {
+    "lateral_station": 0.3,
+    "diameter": 0.6,
+    "tail_arm": 8.0
+   }
+  }
+ },
+ "mission": {
+  "name": "Short-medium haul transport",
+  "payload_kg": 16000.0,
+  "range_km": 4500.0,
+  "cruise_mach": 0.78,
+  "cruise_altitude_m": 11000.0,
+  "takeoff_field_m": 2200.0,
+  "max_approach_speed_ms": 72.0,
+  "max_span_m": 36.0,
+  "propulsion": "auto",
+  "engines": "auto",
+  "explore": "all suitable layouts",
+  "objective": "min_mtow",
+  "passenger_mass_kg": 100.0,
+  "seat_pitch_m": 0.79,
+  "notes": ""
+ }
+}

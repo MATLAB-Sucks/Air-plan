@@ -114,12 +114,14 @@ class MissionRequirements:
         return self.cruise_mach > 1.0
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        from .compat import MISSION_FORMAT
+        return {**asdict(self), "_format_version": MISSION_FORMAT}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "MissionRequirements":
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in d.items() if k in known})
+    def from_dict(cls, d: dict, report: list | None = None) -> "MissionRequirements":
+        """Load any saved version: older files are migrated, newer fields ignored, values sanitised."""
+        from .compat import upgrade_mission
+        return upgrade_mission(d, report)
 
     def save(self, path: str | Path) -> None:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2))

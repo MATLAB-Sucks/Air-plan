@@ -215,18 +215,14 @@ class AircraftParameters:
         return copy.deepcopy(self)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        from .compat import PARAMETERS_FORMAT
+        return {**asdict(self), "_format_version": PARAMETERS_FORMAT}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "AircraftParameters":
-        out = cls()
-        for group, gtype in GROUP_TYPES.items():
-            if group not in d:
-                continue
-            known = {f.name for f in fields(gtype)}
-            vals = {k: v for k, v in d[group].items() if k in known}
-            setattr(out, group, gtype(**{**asdict(getattr(out, group)), **vals}))
-        return out
+    def from_dict(cls, d: dict, report: list | None = None) -> "AircraftParameters":
+        """Load any saved version: older files are migrated, newer fields ignored, values sanitised."""
+        from .compat import upgrade_parameters
+        return upgrade_parameters(d, report)
 
     def group_dict(self, group: str) -> dict:
         return asdict(getattr(self, group))
