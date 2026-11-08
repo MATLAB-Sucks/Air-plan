@@ -4,7 +4,24 @@ from __future__ import annotations
 import sys
 
 
+_LOG = None  # self-test log, written line by line so a crash still leaves evidence
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+    if _LOG is not None:
+        _LOG.write(msg + "\n")
+        _LOG.flush()
+
+
 def main(argv: list[str] | None = None) -> int:
+    global _LOG
+    raw = sys.argv if argv is None else argv
+    if "--self-test-log" in raw:
+        import faulthandler
+        _LOG = open(raw[raw.index("--self-test-log") + 1], "w", buffering=1, encoding="utf-8")
+        faulthandler.enable(file=_LOG, all_threads=True)  # native crashes dump the Python stack here
+        _log("SELF-TEST STAGE: starting")
     import vtkmodules.qt
     vtkmodules.qt.PyQtImpl = "PySide6"
     from PySide6.QtCore import QCoreApplication
@@ -15,10 +32,13 @@ def main(argv: list[str] | None = None) -> int:
     # The viewport uses VTK's default QWidget-based interactor, which creates its
     # own native OpenGL context (Cocoa on macOS); no Qt surface format is needed.
     app = QApplication(sys.argv if argv is None else argv)
+    _log("SELF-TEST STAGE: Qt application created") if _LOG else None
     from .theme import apply_theme
     apply_theme(app)
     from .main_window import MainWindow
+    _log("SELF-TEST STAGE: building main window") if _LOG else None
     window = MainWindow()
+    _log("SELF-TEST STAGE: main window built") if _LOG else None
     args = [a for a in app.arguments()[1:] if not a.startswith("-psn_")]  # macOS Finder adds -psn_*
     if "--self-test" in args:
         log = args[args.index("--self-test-log") + 1] if "--self-test-log" in args else None
@@ -27,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         from ..core.project import Project
         window._load_project(Project.load(args[0]))
     window.show()
+    _log("SELF-TEST STAGE: window shown (OpenGL context next)") if _LOG else None
     return app.exec()
 
 
@@ -35,11 +56,8 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
-    lines: list[str] = []
-
-    def say(msg: str) -> None:  # windowed builds on Windows have no stdout: also write a log file
-        lines.append(msg)
-        print(msg, flush=True)
+    def say(msg: str) -> None:  # windowed builds on Windows have no stdout: written to the log file too
+        _log(msg)
 
     def run():
         code = 0
@@ -49,7 +67,9 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
             from ..core.mission import MissionRequirements
             from ..geometry.cad import cadquery_available
             d = AircraftDesign()
+            say("SELF-TEST STAGE: rendering a design")
             stats = window.viewport.show_design(d)
+            say("SELF-TEST STAGE: evaluating")
             ev = evaluate(d.params, MissionRequirements())
             from ..simulator.flightmodel import FlightSimulator, build_aero_model
             sim = FlightSimulator(build_aero_model(d.params, MissionRequirements(), ev))
@@ -57,6 +77,7 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
             for _ in range(1000):  # 5 s of simulated flight
                 sim.step(1 / 200)
             say(f"SELF-TEST SIM: trimmed={trimmed}, altitude after 5 s {sim.telemetry()['altitude']:.0f} m")
+            say("SELF-TEST STAGE: game-controller support (SDL)")
             from ..input.controller import make_backend
             pads = make_backend()
             say(f"SELF-TEST PADS: controller support {'available' if pads.available else 'unavailable'}"
@@ -72,9 +93,6 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
         except Exception as exc:  # report and fail the process
             say(f"SELF-TEST FAILED: {exc!r}")
             code = 1
-        if log_path:
-            from pathlib import Path
-            Path(log_path).write_text("\n".join(lines) + "\n")
         window.dirty = False
         window.close()
         QApplication.exit(code)

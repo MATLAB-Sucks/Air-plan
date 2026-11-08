@@ -16,16 +16,35 @@ class ControllerManager(QObject):
     pads_changed = Signal(list)
     updated = Signal(object)  # PadState of the primary pad (or None)
 
-    def __init__(self, backend=None, parent=None):
+    def __init__(self, backend=None, parent=None, start_delay_ms: int = 1500):
         super().__init__(parent)
-        self.backend = backend if backend is not None else make_backend()
+        from ..input.controller import NullBackend
         self.settings = self._load_settings()
         self.states: list[PadState] = []
         self._names: list[str] = []
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.poll)
+        if backend is not None:
+            self.backend = backend
+            self._started()
+        else:
+            # SDL starts just after the window is up, never on the start-up path
+            self.backend = NullBackend()
+            self.backend.error = "Starting controller support…"
+            QTimer.singleShot(start_delay_ms, self.start)
+
+    def start(self) -> None:
+        import os
+        if os.environ.get("AF_NO_CONTROLLERS"):
+            self.backend.error = "Controller support switched off (AF_NO_CONTROLLERS)."
+        else:
+            self.backend = make_backend()
+        self._started()
+
+    def _started(self) -> None:
         if self.backend.available:
             self.timer.start(16)
+        self.pads_changed.emit(self._names)
 
     def _load_settings(self) -> PadSettings:
         s = app_settings()
