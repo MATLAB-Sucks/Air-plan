@@ -404,3 +404,24 @@ def test_real_mouse_drag_from_parts_bin(app):
     loop.exec()
     assert w.params.configuration.engine_layout == "rear_fuselage"
     w.close()
+
+
+def test_without_opengl_the_app_explains_instead_of_crashing(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QLabel, QMessageBox
+    from aircraft_foundry.app import viewport as vp
+    from aircraft_foundry.app.main_window import MainWindow
+    from aircraft_foundry.portable import DataLocation
+    monkeypatch.setattr(vp.Viewport, "gl_ok", False)  # as on a VM / Remote Desktop with OpenGL 1.1 only
+    warned = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: warned.append(a[1]))
+    w = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    w.show()
+    app.processEvents()
+    assert getattr(w.viewport, "disabled", False) and not w.viewport.vtk_widget.isVisible()
+    assert any("OpenGL 3.2" in lbl.text() for lbl in w.viewport.findChildren(QLabel))
+    from aircraft_foundry.core.synthesis import baseline, configurations_for
+    w.add_studio_design(baseline(w.project.mission, configurations_for(w.project.mission)[0]))  # still works
+    w.fly()
+    assert warned and "3-D view unavailable" in warned[-1]
+    w.dirty = False
+    w.close()

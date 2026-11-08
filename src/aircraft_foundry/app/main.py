@@ -67,6 +67,8 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
             from ..core.mission import MissionRequirements
             from ..geometry.cad import cadquery_available
             d = AircraftDesign()
+            if not window.viewport.opengl_supported():
+                raise RuntimeError("OpenGL 3.2 is not available on this machine (the 3-D view is disabled)")
             say("SELF-TEST STAGE: rendering a design")
             stats = window.viewport.show_design(d)
             say("SELF-TEST STAGE: evaluating")

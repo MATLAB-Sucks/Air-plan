@@ -66,12 +66,29 @@ jobs:
         if: runner.os == 'macOS'
         run: '"dist/Aircraft Foundry.app/Contents/MacOS/AircraftFoundry" --self-test'
 
+      - name: Software OpenGL for the self-test (Mesa llvmpipe, test copy only - not shipped)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # GitHub's Windows runners have no GPU: Windows offers only OpenGL 1.1 and VTK needs 3.2.
+          # A throwaway copy of the app gets Mesa's software OpenGL next to it; dist\ stays untouched.
+          gh release download --repo pal1000/mesa-dist-win --pattern "*release-msvc.7z" --dir mesa
+          $archive = (Get-ChildItem mesa\*.7z | Select-Object -First 1).FullName
+          7z x $archive -omesa\x -y | Out-Null
+          Copy-Item -Recurse dist\AircraftFoundry selftest-app
+          Copy-Item mesa\x\x64\*.dll selftest-app\
+          Get-ChildItem selftest-app\opengl32.dll
+
       - name: Self-test packaged app (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          GALLIUM_DRIVER: llvmpipe
         run: |
           # windowed exe has no console: the self-test writes its result to a log file
-          $p = Start-Process -FilePath dist\AircraftFoundry\AircraftFoundry.exe -ArgumentList "--self-test","--self-test-log","selftest.txt" -Wait -PassThru
+          $p = Start-Process -FilePath selftest-app\AircraftFoundry.exe -ArgumentList "--self-test","--self-test-log","selftest.txt" -Wait -PassThru
           if (Test-Path selftest.txt) {
             Get-Content selftest.txt
           }

@@ -7,7 +7,7 @@ vtkmodules.qt.PyQtImpl = "PySide6"  # must be set before importing the Qt intera
 
 import vtkmodules.vtkInteractionStyle  # noqa: E402,F401  (registers interactor styles)
 import vtkmodules.vtkRenderingOpenGL2  # noqa: E402,F401  (registers the OpenGL backend)
-from PySide6.QtCore import Signal  # noqa: E402
+from PySide6.QtCore import Qt, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup  # noqa: E402
 from PySide6.QtWidgets import QLabel, QToolBar, QVBoxLayout, QWidget  # noqa: E402
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor  # noqa: E402
@@ -20,6 +20,12 @@ from ..core.design import AircraftDesign  # noqa: E402
 from ..rendering.lighting import VIEWS, set_view, setup_renderer  # noqa: E402
 from ..rendering.scene import AircraftScene, SyncStats, disable_vtk_key_shortcuts  # noqa: E402
 from ..structural_vis.styles import Layer, ViewMode  # noqa: E402
+
+
+GL_MESSAGE = ("<b>The 3-D view needs OpenGL 3.2, which this computer's graphics driver doesn't provide.</b><br><br>"
+              "Usually this means the graphics driver needs updating, or the app is running in a virtual "
+              "machine or over Remote Desktop (which often offer only basic graphics). Everything else - "
+              "generating, evaluating, structures, the library and exports - still works.")
 
 
 class Viewport(QWidget):
@@ -90,10 +96,35 @@ class Viewport(QWidget):
         lay.addWidget(self.legend)
         lay.addWidget(self.vtk_widget, 1)
 
+    gl_ok: bool | None = None  # checked once, before the first OpenGL context is made
+
+    def opengl_supported(self) -> bool:
+        """VTK needs OpenGL 3.2.  Virtual machines, Remote Desktop and some old or broken drivers only
+        offer Windows' OpenGL 1.1, where creating the 3-D view would crash: ask VTK first."""
+        if Viewport.gl_ok is None:
+            try:
+                Viewport.gl_ok = bool(self.vtk_widget.GetRenderWindow().SupportsOpenGL())
+            except Exception:
+                Viewport.gl_ok = True  # can't tell: try as before
+        return Viewport.gl_ok
+
     def start(self) -> None:
+        if not self.opengl_supported():
+            self._disable_3d()
+            return
         self.interactor.Initialize()
         self._marker.SetEnabled(1)
         self._marker.InteractiveOff()
+
+    def _disable_3d(self) -> None:
+        from PySide6.QtWidgets import QLabel
+        self.disabled = True
+        self.vtk_widget.hide()
+        msg = QLabel(GL_MESSAGE)
+        msg.setWordWrap(True)
+        msg.setAlignment(Qt.AlignCenter)
+        msg.setStyleSheet("padding: 30px; font-size: 14px;")
+        self.layout().addWidget(msg, 1)
 
     # ------------------------------------------------------------ scene
     def show_design(self, design: AircraftDesign) -> SyncStats:
@@ -131,6 +162,8 @@ class Viewport(QWidget):
         self.render()
 
     def render(self) -> None:
+        if getattr(self, 'disabled', False):
+            return
         self.renderer.ResetCameraClippingRange()
         self.vtk_widget.GetRenderWindow().Render()
 

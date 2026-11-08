@@ -671,6 +671,10 @@ class MainWindow(QMainWindow):
         self._open_tunnel(self._selected_design(), self.project.mission, c.evaluation)
 
     def _open_tunnel(self, design, mission, evaluation, pinned_name: str | None = None):
+        if not self.viewport.opengl_supported():
+            from .viewport import GL_MESSAGE
+            QMessageBox.warning(self, "3-D view unavailable", GL_MESSAGE)
+            return
         from .wind_tunnel import WindTunnelWindow
         if evaluation is None or not evaluation.converged:
             return
@@ -688,6 +692,10 @@ class MainWindow(QMainWindow):
             tool.source_name = (c.name or c.id) if c is not None else None
 
     def _open_sim(self, design, mission, evaluation, start: str = "runway", pinned_name: str | None = None):
+        if not self.viewport.opengl_supported():
+            from .viewport import GL_MESSAGE
+            QMessageBox.warning(self, "3-D view unavailable", GL_MESSAGE)
+            return
         from ..simulator.window import SimulatorWindow
         if evaluation is None or not evaluation.converged:
             return

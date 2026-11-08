@@ -3,6 +3,8 @@
 ## 0.9.2
 - First published release: the build workflow is fixed (Windows PyInstaller exit-crash
   workaround, numba TBB conflict), so version tags now produce downloadable releases.
+- **No more crash without OpenGL 3.2** (virtual machines, Remote Desktop, old drivers): the 3-D
+  view shows an explanation instead, and everything else keeps working.
 - Clearer update messages: "no release published yet" instead of "404", and the time
   to try again when GitHub's hourly limit is used up.
 - Includes everything from 0.9.0 and 0.9.1 (updates, compatibility, controllers, design
