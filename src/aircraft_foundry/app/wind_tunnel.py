@@ -401,7 +401,20 @@ class WindTunnelWindow(QMainWindow):
         self._field_thread = threading.Thread(target=work, daemon=True)
         self._field_thread.start()
 
+    def _alive(self) -> bool:
+        """False once the window (or the page it was embedded in) has been torn down."""
+        import shiboken6
+        if getattr(self, "_closed", False) or not shiboken6.isValid(self.vtk_widget):
+            for t in ("_debounce", "_poll", "_anim"):
+                timer = getattr(self, t, None)
+                if timer is not None and shiboken6.isValid(timer):
+                    timer.stop()
+            return False
+        return True
+
     def _check_field(self):
+        if not self._alive():
+            return
         if self._field_result is not None:
             xs, ys, zs, vel, vinf = self._field_result
             self._field_result = None
@@ -505,6 +518,8 @@ class WindTunnelWindow(QMainWindow):
         self.vtk_widget.GetRenderWindow().Render()
 
     def _animate(self):
+        if not self._alive():
+            return
         if not self.particles or not self.animate.isChecked() or not self.isVisible():
             return
         step = 0.012 * self.L
@@ -532,6 +547,7 @@ class WindTunnelWindow(QMainWindow):
         return False
 
     def closeEvent(self, ev):
+        self._closed = True
         for t in (self._debounce, self._poll, self._anim):
             t.stop()
         self.vtk_widget.Finalize()

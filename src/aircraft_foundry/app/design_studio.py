@@ -1,35 +1,31 @@
-"""Design studio: build an aircraft by dragging parts and handles, see if it flies, then fly it.
+"""Design studio, Kerbal-style: drag parts onto the aircraft, click a part to shape it and set its strength.
 
-* **Parts palette** - pick a layout (conventional, canard, flying wing,
-  blended wing body, twin boom, supersonic delta), a tail (conventional,
-  T-tail, V-tail, twin fins), engines (under the wing, rear fuselage, on top,
-  pusher; 2/3/4; jets or propellers) and the wing position (low/mid/high).
-  Choosing a part re-sizes the design around it, keeping it consistent.
-* **Top and side views** with drag handles:
-  wings, tails and canards - move (◆), stretch the span and sweep the tip (●
-  at the tip leading edge), root chord (■ at the root trailing edge) and taper
-  (■ at the tip trailing edge); fuselage length and width; engines along the
-  span; ailerons (inner / outer edge, chord), flaps (span, chord), elevator
-  and rudder chord; fin height and sweep in the side view.
-* **Live 3-D preview** and a **"Will it fly?"** verdict that updates as you
-  drag, separating "can it fly at all" from "does it meet the mission".
-* **Fly it**, **Wind tunnel**, **Add to project**.
+* **Parts bin** - drag a wing, tailplane, T-tail, V-tail, twin fins, canard, jet or propeller engines,
+  twin booms or a flying-wing / blended-body kit into the top or side view.  While you drag, the
+  places that part can attach light up as green nodes; the nearest turns yellow; drop to attach.
+* **Click a part** (or pick it from the list) to select it: it is outlined, its drag handles appear
+  (move, span/sweep, chords, control surfaces), and the properties panel shows every dimension of that
+  part plus its **strength** - material and reserve factor - with a live "breaks at ... g" readout.
+  The *Aircraft* entry holds the g rating and safety factor.
+* **Delete** removes the selected part where that still leaves an aircraft (no tail -> flying wing,
+  no canard -> conventional).
+* **Will it fly?** updates as you build; **Fly it**, **Wind tunnel**, **Add to project**.
 
-Every handle edits a real design parameter (clamped to its valid range), so
-whatever you build is always a consistent aircraft the evaluator, structures,
-flight model and wind tunnel can analyse.
+Every part and handle edits real design parameters (clamped to valid ranges), so whatever you build
+stays a consistent aircraft for the evaluator, structures, flight model and wind tunnel.
 """
 from __future__ import annotations
 
 import math
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import (QComboBox, QDockWidget, QFormLayout, QGraphicsEllipseItem, QGraphicsItem,
-                               QGraphicsPathItem, QGraphicsPolygonItem, QGraphicsRectItem, QGraphicsScene,
-                               QGraphicsSimpleTextItem, QGraphicsView, QGroupBox, QHBoxLayout, QLabel, QMainWindow,
-                               QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget)
+from PySide6.QtCore import QMimeData, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QDrag, QPainterPath, QPen, QPolygonF
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDockWidget, QDoubleSpinBox, QFormLayout,
+                               QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsPolygonItem,
+                               QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView, QGroupBox,
+                               QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QPushButton,
+                               QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget)
 
 from ..core import parameters as P
 from ..core.design import AircraftDesign
@@ -53,6 +49,94 @@ def clamp(name: str, value: float) -> float:
 
 def options(name: str) -> tuple:
     return tuple(SPECS.get(name, {}).get("options", ()))
+
+
+# ----------------------------------------------------------------------------- parts catalogue
+PARTS = [  # (kind, label, tooltip)
+    ("wing", "🪽 Main wing", "Drop on the fuselage to move the wing; in the side view, choose low / mid / high"),
+    ("tailplane", "▭ Tailplane", "Conventional tail at the back of the fuselage"),
+    ("t_tail", "⊤ T-tail", "Tailplane on top of the fin"),
+    ("v_tail", "∨ V-tail", "Two angled surfaces do both pitch and yaw"),
+    ("twin_fin", "‖ Twin fins", "A fin at each tailplane tip"),
+    ("canard", "◁ Canard", "Foreplane near the nose (the wing moves aft)"),
+    ("jet_pair", "🔥 Jet engines", "Drop on the wing, the rear fuselage, on top, or the tail cone"),
+    ("prop_pair", "🌀 Propeller engines", "Drop on the wing for a pair of turboprops"),
+    ("nose_prop", "🌀 Nose propeller", "Single tractor propeller in the nose (light / aerobatic aircraft)"),
+    ("pusher_prop", "🌀 Pusher propeller", "Single propeller behind the tail cone"),
+    ("booms", "‖ Twin booms", "Booms from the wing carry the tail"),
+    ("flying_wing", "◆ Flying-wing kit", "Remove fuselage and tail: an all-wing aircraft"),
+    ("bwb", "◆ Blended body kit", "Lifting centre-body blended into the wing"),
+]
+PART_NAMES = {"aircraft": "Whole aircraft", "wing": "Main wing", "htail": "Tailplane", "vtail": "Fin",
+              "canard": "Canard", "fuselage": "Fuselage", "engines": "Engines", "gear": "Landing gear",
+              "booms": "Booms"}
+PART_PROPS = {
+    "aircraft": [("structure.limit_load_factor", "G rating (limit)"), ("structure.safety_factor", "Safety factor"),
+                 ("configuration.wing_position", "Wing height"), ("configuration.propulsion", "Engine type")],
+    "wing": [("wing.span", "Span"), ("wing.root_chord", "Root chord"), ("wing.taper_ratio", "Taper"),
+             ("wing.sweep_le_deg", "Sweep"), ("wing.dihedral_deg", "Dihedral"), ("wing.tc_root", "Thickness (root)"),
+             ("wing.tc_tip", "Thickness (tip)"), ("wing.camber", "Camber (0 = symmetric)"),
+             ("wing.twist_tip_deg", "Tip twist"), ("wing.x_position", "Position along fuselage"),
+             ("controls.aileron_start", "Aileron inner edge"), ("controls.aileron_end", "Aileron outer edge"),
+             ("controls.aileron_chord", "Aileron chord"), ("controls.flap_end", "Flap span (0 = none)"),
+             ("controls.flap_chord", "Flap chord")],
+    "htail": [("htail.span", "Span"), ("htail.root_chord", "Root chord"), ("htail.taper_ratio", "Taper"),
+              ("htail.sweep_le_deg", "Sweep"), ("htail.dihedral_deg", "Dihedral"), ("htail.x_position", "Position"),
+              ("controls.elevator_chord", "Elevator chord")],
+    "vtail": [("vtail.span", "Height"), ("vtail.root_chord", "Root chord"), ("vtail.taper_ratio", "Taper"),
+              ("vtail.sweep_le_deg", "Sweep"), ("vtail.x_position", "Position"), ("controls.rudder_chord", "Rudder chord")],
+    "canard": [("canard.span", "Span"), ("canard.root_chord", "Root chord"), ("canard.taper_ratio", "Taper"),
+               ("canard.sweep_le_deg", "Sweep"), ("canard.x_position", "Position"),
+               ("controls.elevator_chord", "Elevator chord")],
+    "fuselage": [("fuselage.length", "Length"), ("fuselage.diameter", "Diameter"),
+                 ("fuselage.height_ratio", "Height / width"), ("fuselage.nose_fraction", "Nose length (fraction)"),
+                 ("fuselage.tail_fraction", "Tail cone (fraction)"), ("fuselage.nose_profile", "Nose shape")],
+    "engines": [("engines.count", "Number of engines"), ("engines.thrust_kn", "Thrust each"),
+                ("engines.bypass_ratio", "Bypass ratio (jets)"), ("engines.span_fraction", "Position along the wing"),
+                ("configuration.engine_layout", "Mounting")],
+    "gear": [("gear.wheel_diameter", "Wheel diameter"), ("gear.wheels_per_leg", "Wheels per leg"),
+             ("gear.track", "Track"), ("gear.ground_clearance", "Ground clearance")],
+    "booms": [("booms.lateral_station", "Spanwise station"), ("booms.diameter", "Diameter"),
+              ("booms.tail_arm", "Tail arm")],
+}
+STRENGTH = {"wing": ("structure.wing_strength", "structure.wing_material", "wing"),
+            "htail": ("structure.tail_strength", None, "horizontal_tail"),
+            "vtail": ("structure.tail_strength", None, "vertical_tail"),
+            "canard": ("structure.tail_strength", None, "horizontal_tail"),
+            "fuselage": ("structure.fuselage_strength", "structure.fuselage_material", "fuselage"),
+            "gear": ("structure.gear_strength", None, "main_gear")}
+MIME = "application/x-aircraft-foundry-part"
+
+
+class PartsBin(QListWidget):
+    """Tiles you drag onto the editors."""
+
+    def __init__(self):
+        super().__init__()
+        self.setViewMode(QListWidget.IconMode)
+        self.setResizeMode(QListWidget.Adjust)
+        self.setGridSize(self.gridSize().__class__(132, 46))
+        self.setWordWrap(True)
+        self.setDragEnabled(True)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.setMovement(QListWidget.Static)
+        self.setMinimumHeight(250)
+        for kind, label, tip in PARTS:
+            it = QListWidgetItem(label)
+            it.setData(Qt.UserRole, kind)
+            it.setToolTip(tip)
+            self.addItem(it)
+
+    def startDrag(self, actions):
+        it = self.currentItem()
+        if it is None:
+            return
+        md = QMimeData()
+        md.setData(MIME, it.data(Qt.UserRole).encode())
+        md.setText(it.text())
+        drag = QDrag(self)
+        drag.setMimeData(md)
+        drag.exec(Qt.CopyAction)
 
 
 class Handle(QGraphicsEllipseItem):
@@ -103,13 +187,93 @@ class Handle(QGraphicsEllipseItem):
 
 
 class EditorView(QGraphicsView):
-    def __init__(self, title: str):
+    """Top or side view: shows the parts, accepts dropped parts (with attachment nodes) and clicks."""
+
+    def __init__(self, title: str, studio=None, view: str = "top"):
         super().__init__()
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(self.renderHints().__class__.Antialiasing)
-        self.setBackgroundBrush(QBrush(QColor(26, 30, 38)))
+        self.setBackgroundBrush(QBrush(QColor(28, 33, 41)))
         self.title = title
+        self.studio = studio
+        self.view = view
         self._fitted = False
+        self._node_items = []
+        self.setAcceptDrops(True)
+
+    # ---- drag and drop of parts
+    def _kind(self, ev):
+        md = ev.mimeData()
+        return bytes(md.data(MIME)).decode() if md.hasFormat(MIME) else None
+
+    def dragEnterEvent(self, ev):
+        if self._kind(ev):
+            ev.acceptProposedAction()
+
+    def dragMoveEvent(self, ev):
+        kind = self._kind(ev)
+        if not kind or self.studio is None:
+            return
+        ev.acceptProposedAction()
+        self.show_nodes(kind, self.mapToScene(ev.position().toPoint()))
+
+    def dragLeaveEvent(self, ev):
+        self.clear_nodes()
+
+    def dropEvent(self, ev):
+        kind = self._kind(ev)
+        pos = self.mapToScene(ev.position().toPoint())
+        node = self.nearest_node(kind, pos) if kind else None
+        self.clear_nodes()
+        if kind and self.studio is not None:
+            ev.acceptProposedAction()
+            self.studio.drop_part(kind, node, self.view)
+
+    def nearest_node(self, kind, pos):
+        nodes = self.studio.nodes_for(kind, self.view)
+        if not nodes:
+            return None
+        scale = max(self.transform().m11(), 1e-6)
+        best = min(nodes, key=lambda n: (n[0].x() - pos.x()) ** 2 + (n[0].y() - pos.y()) ** 2)
+        d_px = math.hypot(best[0].x() - pos.x(), best[0].y() - pos.y()) * scale
+        return best if d_px < 60 else None
+
+    def show_nodes(self, kind, pos):
+        self.clear_nodes()
+        near = self.nearest_node(kind, pos)
+        for pt, node_id in self.studio.nodes_for(kind, self.view):
+            hot = near is not None and near[1] == node_id and near[0] == pt
+            r = 9 if hot else 6
+            it = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
+            it.setPos(pt)
+            it.setBrush(QBrush(QColor(250, 210, 60) if hot else QColor(90, 210, 120, 200)))
+            it.setPen(QPen(QColor(20, 20, 20), 1))
+            it.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+            it.setZValue(20)
+            self.scene().addItem(it)
+            self._node_items.append(it)
+
+    def clear_nodes(self):
+        for it in self._node_items:
+            if it.scene() is not None:
+                self.scene().removeItem(it)
+        self._node_items = []
+
+    # ---- click to select a part
+    def mousePressEvent(self, ev):
+        item = self.itemAt(ev.position().toPoint())
+        if isinstance(item, Handle) or self.studio is None:
+            return super().mousePressEvent(ev)
+        part = item.data(0) if item is not None else None
+        if part:
+            self.studio.select(part)
+        super().mousePressEvent(ev)
+
+    def keyPressEvent(self, ev):
+        if ev.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.studio is not None:
+            self.studio.remove_selected()
+            return
+        super().keyPressEvent(ev)
 
     def fit(self, rect: QRectF):
         self.fitInView(rect.adjusted(-0.08 * rect.width(), -0.15 * rect.height(), 0.08 * rect.width(),
@@ -134,14 +298,16 @@ class DesignStudioWindow(QMainWindow):
         self.design = AircraftDesign(self.params.copy(), name)
         self.verdict = None
         self._dragging = False
+        self.selected = "wing"
 
         from .viewport import Viewport
-        self.top = EditorView("Top view")
-        self.side = EditorView("Side view")
+        self.top = EditorView("Top view", self, "top")
+        self.side = EditorView("Side view", self, "side")
         self.viewport = Viewport(self)
         editors = QSplitter(Qt.Vertical)
-        for v, label in ((self.top, "Top view — drag ◆ to move, ● tip, ■ chords; orange = control surfaces"),
-                         (self.side, "Side view — fuselage, fin, wing height")):
+        for v, label in ((self.top, "Top view — drag parts in from the bin · click a part to select it · "
+                                    "Delete removes it"),
+                         (self.side, "Side view — wing height, fin, T-tail")):
             box = QWidget()
             bl = QVBoxLayout(box)
             bl.setContentsMargins(0, 0, 0, 0)
@@ -154,86 +320,336 @@ class DesignStudioWindow(QMainWindow):
         centre.addWidget(self.viewport)
         centre.setSizes([820, 520])
         self.setCentralWidget(centre)
-        self._build_palette()
-        self._build_verdict_panel()
+        self._build_side_panel()
 
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
         self._update_timer.timeout.connect(self.refresh_analysis)
         self.rebuild_editors(fit=True)
         self.refresh_analysis()
+        self._fill_part_list()
+        self._build_properties()
 
     # ------------------------------------------------------------ palette
-    def _build_palette(self):
+    def _build_side_panel(self):
         panel = QWidget()
         lay = QVBoxLayout(panel)
-
-        def group(title, items, handler):
-            box = QGroupBox(title)
-            gl = QVBoxLayout(box)
-            for label, value in items:
-                b = QPushButton(label)
-                b.clicked.connect(lambda _=False, v=value: handler(v))
-                gl.addWidget(b)
-            lay.addWidget(box)
-        group("Layout", LAYOUTS, self.set_layout)
-        tails = [(t.replace("_", " ").title().replace("T Tail", "T-tail").replace("V Tail", "V-tail"), t)
-                 for t in options("configuration.tail_type") if t != "none"]
-        group("Tail", tails, lambda v: self.set_config("tail_type", v))
-        engines = [(e.replace("_", " ").capitalize(), e) for e in options("configuration.engine_layout")]
-        group("Engine position", engines, lambda v: self.set_config("engine_layout", v))
-        form = QFormLayout()
-        self.count = QComboBox()
-        self.count.addItems(["1", "2", "3", "4"])
-        self.count.setCurrentText(str(self.params.engines.count))
-        self.count.currentTextChanged.connect(lambda t: self.set_value("engines.count", int(t), resize=True))
-        self.prop = QComboBox()
-        self.prop.addItems(list(options("configuration.propulsion")))
-        self.prop.setCurrentText(self.params.configuration.propulsion)
-        self.prop.currentTextChanged.connect(lambda t: self.set_config("propulsion", t))
-        self.wpos = QComboBox()
-        self.wpos.addItems(list(options("configuration.wing_position")))
-        self.wpos.setCurrentText(self.params.configuration.wing_position)
-        self.wpos.currentTextChanged.connect(lambda t: self.set_config("wing_position", t))
-        form.addRow("Engines", self.count)
-        form.addRow("Engine type", self.prop)
-        form.addRow("Wing height", self.wpos)
-        lay.addLayout(form)
-        lay.addStretch(1)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(panel)
-        dock = QDockWidget("Parts", self)
-        dock.setWidget(scroll)
-        dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
-        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
-
-    def _build_verdict_panel(self):
-        panel = QWidget()
-        lay = QVBoxLayout(panel)
+        bin_box = QGroupBox("Parts — drag onto the aircraft")
+        bl = QVBoxLayout(bin_box)
+        self.bin = PartsBin()
+        bl.addWidget(self.bin)
+        lay.addWidget(bin_box)
+        props = QGroupBox("Selected part")
+        pl = QVBoxLayout(props)
+        self.part_box = QComboBox()
+        self.part_box.currentIndexChanged.connect(lambda i: self.select(self.part_box.itemData(i)))
+        pl.addWidget(self.part_box)
+        self.props_form = QFormLayout()
+        pl.addLayout(self.props_form)
+        self.strength_box = QGroupBox("Strength")
+        self.strength_form = QFormLayout(self.strength_box)
+        pl.addWidget(self.strength_box)
+        self.remove_btn = QPushButton("Remove part")
+        self.remove_btn.clicked.connect(self.remove_selected)
+        pl.addWidget(self.remove_btn)
+        lay.addWidget(props)
+        vbox = QGroupBox("Will it fly?")
+        vl = QVBoxLayout(vbox)
         self.verdict_label = QLabel()
         self.verdict_label.setTextFormat(Qt.RichText)
         self.verdict_label.setWordWrap(True)
         self.verdict_label.setAlignment(Qt.AlignTop)
-        lay.addWidget(self.verdict_label, 1)
+        vl.addWidget(self.verdict_label)
         row = QHBoxLayout()
         self.fly_btn = QPushButton("✈ Fly it")
+        self.fly_btn.setObjectName("primary")
         self.wt_btn = QPushButton("🌬 Wind tunnel")
         self.add_btn = QPushButton("Add to project")
         self.fly_btn.clicked.connect(self.fly)
         self.wt_btn.clicked.connect(self.wind_tunnel)
         self.add_btn.clicked.connect(lambda: self.send_to_project.emit(self.params.copy()))
-        for b in (self.fly_btn, self.wt_btn, self.add_btn):
-            row.addWidget(b)
-        lay.addLayout(row)
+        for b_ in (self.fly_btn, self.wt_btn, self.add_btn):
+            row.addWidget(b_)
+        self.balance_btn = QPushButton("⚖ Balance (move the wing for stability)")
+        self.balance_btn.setToolTip("Moves the wing so the centre of gravity sits a healthy distance ahead of the "
+                                    "neutral point, then re-sizes the tails and landing gear")
+        self.balance_btn.clicked.connect(self.balance)
+        vl.addWidget(self.balance_btn)
+        vl.addLayout(row)
+        lay.addWidget(vbox)
+        lay.addStretch(1)
+        self.status = QLabel()
+        self.status.setObjectName("hint")
+        self.status.setWordWrap(True)
+        lay.addWidget(self.status)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(panel)
-        dock = QDockWidget("Will it fly?", self)
+        dock = QDockWidget("Design studio", self)
         dock.setWidget(scroll)
-        dock.setMinimumWidth(380)
+        dock.setMinimumWidth(400)
         dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
+        self._fill_part_list()
+
+    # ------------------------------------------------------------ parts present / selection / properties
+    def parts_present(self) -> list[str]:
+        arr = getattr(self, "arr", None) or Arrangement(self.params)
+        roles = {ps.role for ps in arr.surfaces}
+        out = ["aircraft", "wing"]
+        if arr.layout not in ("flying_wing",):
+            out.append("fuselage")
+        if roles & {"htail", "v_tail"}:
+            out.append("htail")
+        if any(ps.surface.vertical and ps.role in ("fin", "vtail") for ps in arr.surfaces):
+            out.append("vtail")
+        if "canard" in roles:
+            out.append("canard")
+        if arr.layout == "twin_boom":
+            out.append("booms")
+        out += ["engines", "gear"]
+        return out
+
+    def _fill_part_list(self):
+        self.part_box.blockSignals(True)
+        self.part_box.clear()
+        for key in self.parts_present():
+            self.part_box.addItem(PART_NAMES[key], key)
+        i = self.part_box.findData(self.selected)
+        self.part_box.setCurrentIndex(max(i, 0))
+        self.part_box.blockSignals(False)
+        if i < 0:
+            self.selected = self.part_box.itemData(0)
+
+    def select(self, part: str | None):
+        if not part or part == self.selected and self.props_form.rowCount():
+            return
+        self.selected = part
+        i = self.part_box.findData(part)
+        if i >= 0 and self.part_box.currentIndex() != i:
+            self.part_box.blockSignals(True)
+            self.part_box.setCurrentIndex(i)
+            self.part_box.blockSignals(False)
+        self.rebuild_editors(fit=False)
+        self._build_properties()
+
+    def _clear_form(self, form):
+        while form.rowCount():
+            form.removeRow(0)
+
+    def _editor(self, name: str):
+        spec = SPECS.get(name, {})
+        value = self.params.get(name) if hasattr(self.params, "get") else None
+        if value is None:
+            grp, fld = name.split(".")
+            value = getattr(getattr(self.params, grp), fld)
+        if "options" in spec:
+            w = QComboBox()
+            w.addItems([str(o) for o in spec["options"]])
+            w.setCurrentText(str(value))
+            w.currentTextChanged.connect(lambda t, n=name: self.set_value(n, t, resize=n.startswith("configuration")))
+            return w
+        if isinstance(value, int) and not isinstance(value, bool):
+            w = QSpinBox()
+            w.setRange(int(spec.get("lo", 0)), int(spec.get("hi", 100)))
+            w.setValue(int(value))
+            w.valueChanged.connect(lambda v, n=name: self.set_value(n, int(v), resize=n == "engines.count"))
+            return w
+        w = QDoubleSpinBox()
+        lo, hi = spec.get("lo", -1e6), spec.get("hi", 1e6)
+        step = spec.get("step", (hi - lo) / 100 if math.isfinite(hi - lo) else 0.1)
+        w.setDecimals(3 if step < 0.01 else 2)
+        w.setRange(lo, hi)
+        w.setSingleStep(step)
+        w.setValue(float(value))
+        if spec.get("unit"):
+            w.setSuffix(" " + spec["unit"])
+        w.setKeyboardTracking(False)
+        w.valueChanged.connect(lambda v, n=name: self.set_value(n, float(v)))
+        return w
+
+    def _build_properties(self):
+        self._clear_form(self.props_form)
+        self._clear_form(self.strength_form)
+        part = self.selected
+        for name, label in PART_PROPS.get(part, []):
+            if name in SPECS:
+                self.props_form.addRow(label, self._editor(name))
+        st = STRENGTH.get(part)
+        self.strength_box.setVisible(st is not None)
+        if st:
+            factor, mat, group = st
+            self.strength_form.addRow("Reserve factor", self._editor(factor))
+            if mat:
+                self.strength_form.addRow("Material", self._editor(mat))
+            self.strength_readout = QLabel()
+            self.strength_readout.setWordWrap(True)
+            self.strength_form.addRow(self.strength_readout)
+            self._update_strength_readout()
+        self.remove_btn.setEnabled(part in ("htail", "vtail", "canard", "booms"))
+
+    def _update_strength_readout(self):
+        st = STRENGTH.get(self.selected)
+        lbl = getattr(self, "strength_readout", None)
+        if not st or lbl is None:
+            return
+        factor, _, group = st
+        s_ = self.params.structure
+        k = getattr(s_, factor.split(".")[1])
+        ev = self.verdict.evaluation if self.verdict and self.verdict.evaluation else None
+        mass = (ev.weights.get(group, 0.0) if ev is not None and ev.converged else 0.0)
+        if self.selected == "wing":
+            text = (f"Breaks at <b>{s_.limit_load_factor * s_.safety_factor * k:.1f} g</b> "
+                    f"(rated {s_.limit_load_factor:.1f} g × safety {s_.safety_factor:.2f} × reserve {k:.2f})")
+        else:
+            text = f"Designed for {s_.limit_load_factor * s_.safety_factor * k:.1f} g ultimate"
+        if mass:
+            text += f" · this part weighs <b>{mass:,.0f} kg</b>"
+        lbl.setText(text)
+
+    # ------------------------------------------------------------ parts: where they attach, and attaching them
+    def nodes_for(self, kind: str, view: str) -> list:
+        arr = self.arr
+        fus = arr.fuselage
+        L = fus.length
+        wing = next(p for p in arr.surfaces if p.key == "wing")
+
+        def wing_pt(eta, side=1, xc=0.35):
+            p = wing.placement.apply(wing.surface.map_section(eta, np.array([[xc, 0.0]]), side))[0]
+            return p
+        nodes = []
+        if view == "top":
+            if kind == "wing":
+                nodes = [(QPointF(f * L, 0.0), ("wing_x", round(f, 3))) for f in np.arange(0.15, 0.66, 0.05)]
+            elif kind in ("tailplane", "v_tail", "twin_fin", "t_tail"):
+                nodes = [(QPointF(0.9 * L, 0.0), ("tail", kind))]
+            elif kind == "canard":
+                nodes = [(QPointF(0.12 * L, 0.0), ("canard",))]
+            elif kind in ("jet_pair", "prop_pair"):
+                for eta in (0.22, 0.3, 0.38, 0.46):
+                    for side in (1, -1):
+                        p = wing_pt(eta, side, 0.0)
+                        nodes.append((QPointF(p[0], p[1]), ("wing_eng", eta)))
+                if kind == "jet_pair":
+                    xr = 0.78 * L
+                    hw = float(fus.half_width(np.array([xr]))[0])
+                    nodes += [(QPointF(xr, s_ * (hw + 1.0)), ("rear",)) for s_ in (1, -1)]
+                    nodes.append((QPointF(L, 0.0), ("pusher",)))
+            elif kind == "nose_prop":
+                nodes = [(QPointF(0.0, 0.0), ("nose",))]
+            elif kind == "pusher_prop":
+                nodes = [(QPointF(L, 0.0), ("pusher",))]
+            elif kind == "booms":
+                nodes = [(QPointF(wing_pt(e, s_)[0], wing_pt(e, s_)[1]), ("booms", e)) for e in (0.25, 0.32) for s_ in (1, -1)]
+            elif kind in ("flying_wing", "bwb"):
+                nodes = [(QPointF(0.45 * L, 0.0), (kind,))]
+        else:
+            x_w = float(wing_pt(0.0, 1, 0.3)[0])
+            if kind == "wing":
+                for pos, frac in (("high", 0.85), ("mid", 0.0), ("low", -0.85)):
+                    z = float(fus.centre_z(np.array([x_w]))[0] + frac * fus.half_height(np.array([x_w]))[0])
+                    nodes.append((QPointF(x_w, -z), ("wing_z", pos)))
+            elif kind in ("t_tail", "tailplane"):
+                fins = [p for p in arr.surfaces if p.surface.vertical]
+                if fins:
+                    f = fins[0]
+                    tip = f.placement.apply(f.surface.map_section(1.0, np.array([[0.3, 0.0]]), f.sides[0]))[0]
+                    root = f.placement.apply(f.surface.map_section(0.0, np.array([[0.3, 0.0]]), f.sides[0]))[0]
+                    nodes = [(QPointF(tip[0], -tip[2]), ("tail", "t_tail")),
+                             (QPointF(root[0], -root[2]), ("tail", "tailplane"))]
+            elif kind == "jet_pair":
+                z = float(fus.top_z(np.array([x_w + 0.4 * wing.surface.root_chord]))[0]) + 0.6
+                nodes = [(QPointF(x_w + 0.4 * wing.surface.root_chord, -z), ("upper_aft",))]
+        return nodes
+
+    def drop_part(self, kind: str, node, view: str) -> None:
+        """Attach a dropped part at a node (or say where it can go)."""
+        if node is None:
+            self.status.setText(f"Drop the part on one of the highlighted green attachment points.")
+            return
+        _, nid = node
+        c = self.params.configuration
+        layout = c.layout
+        tailless = layout in ("flying_wing", "blended_wing_body")
+        msg = ""
+        if kind == "wing" and nid[0] == "wing_x":
+            self.set_value("wing.x_position", nid[1], rebuild=False)
+            msg = f"Wing moved to {nid[1]:.0%} of the fuselage length."
+        elif kind == "wing" and nid[0] == "wing_z":
+            self.set_value("configuration.wing_position", nid[1], resize=True, rebuild=False)
+            msg = f"{nid[1].capitalize()} wing."
+        elif nid[0] == "tail":
+            tail = {"tailplane": "conventional", "t_tail": "t_tail", "v_tail": "v_tail", "twin_fin": "twin_fin"}[nid[1]]
+            if tailless:
+                self.set_layout("conventional")
+            self.set_value("configuration.tail_type", tail, resize=True, rebuild=False)
+            msg = f"{PART_NAMES.get('htail')} set to {tail.replace('_', ' ')}."
+        elif kind == "canard":
+            self.set_layout("canard")
+            msg = "Canard added (the wing moves aft to keep it balanced)."
+        elif kind in ("jet_pair", "prop_pair", "nose_prop", "pusher_prop"):
+            total = c and self.params.engines.count * self.params.engines.thrust_kn
+            prop = "turbofan" if kind == "jet_pair" else "turboprop"
+            mount = {"wing_eng": "under_wing" if layout == "supersonic_delta" else "wing", "rear": "rear_fuselage",
+                     "upper_aft": "upper_aft", "pusher": "pusher", "nose": "nose"}[nid[0]]
+            count = 1 if kind in ("nose_prop", "pusher_prop") or (mount == "pusher" and prop == "turbofan") else 2
+            if mount == "wing" and c.engine_layout == "wing" and c.propulsion == prop and \
+                    abs(self.params.engines.span_fraction - nid[1]) > 0.05 and self.params.engines.count == 2:
+                count = 4  # a second pair further out on the wing
+            self.params.set("configuration.propulsion", prop)
+            self.params.set("configuration.engine_layout", mount)
+            self.params.set("engines.count", count)
+            self.params.set("engines.thrust_kn", clamp("engines.thrust_kn", total / count))
+            if nid[0] == "wing_eng":
+                self.params.set("engines.span_fraction", clamp("engines.span_fraction", nid[1]))
+            self._resize_around()
+            msg = f"{count} {'jet' if prop == 'turbofan' else 'propeller'} engine{'s' if count > 1 else ''} " \
+                  f"({mount.replace('_', ' ')})."
+            self.selected = "engines"
+        elif kind == "booms":
+            self.set_layout("twin_boom")
+            msg = "Twin booms carry the tail."
+        elif kind in ("flying_wing", "bwb"):
+            self.set_layout("flying_wing" if kind == "flying_wing" else "blended_wing_body")
+            msg = "All-wing aircraft." if kind == "flying_wing" else "Blended wing body."
+        self.status.setText(msg)
+        self._fill_part_list()
+        self.rebuild_editors(fit=True)
+        self._build_properties()
+        self.schedule_analysis(50)
+
+    def balance(self) -> None:
+        from ..core import synthesis as S
+        try:
+            S.place_wing_for_stability(self.params, self.mission)
+            S._size_tails(self.params, self.mission)
+            S.complete_design(self.params, self.mission)
+        except Exception as exc:
+            self.status.setText(f"Couldn't balance this layout: {exc}")
+            return
+        self.status.setText(f"Wing moved to {self.params.wing.x_position:.0%} of the fuselage for stability.")
+        self.rebuild_editors(fit=False)
+        self._build_properties()
+        self.schedule_analysis(30)
+
+    def remove_selected(self) -> None:
+        part = self.selected
+        if part in ("htail", "vtail"):
+            self.set_layout("flying_wing")
+            self.status.setText("Tail removed: without a tail the aircraft becomes a flying wing "
+                                "(swept, washed-out wing with elevons and drag rudders).")
+        elif part == "canard":
+            self.set_layout("conventional")
+            self.status.setText("Canard removed: conventional layout with a tailplane.")
+        elif part == "booms":
+            self.set_layout("conventional")
+            self.status.setText("Booms removed: conventional layout.")
+        else:
+            self.status.setText("The wing, fuselage, engines and landing gear can be reshaped but not removed.")
+            return
+        self.selected = "wing"
+        self._fill_part_list()
+        self._build_properties()
 
     # ------------------------------------------------------------ parameter edits
     def set_value(self, name: str, value, resize: bool = False, rebuild: bool = True):
@@ -244,9 +660,14 @@ class DesignStudioWindow(QMainWindow):
             return
         if resize:
             self._resize_around()
+            QTimer.singleShot(0, self._refresh_panel)
         if rebuild:
             self.rebuild_editors(fit=resize)
         self.schedule_analysis()
+
+    def _refresh_panel(self):
+        self._fill_part_list()
+        self._build_properties()
 
     def _resize_around(self):
         """After a part change: re-size tails and finish the design (gear, structure...) consistently."""
@@ -269,6 +690,7 @@ class DesignStudioWindow(QMainWindow):
             self.params = S.baseline(self.mission, S.configurations_for(self.mission)[0])
             self.rebuild_editors(fit=True)
             self.schedule_analysis()
+            QTimer.singleShot(0, self._refresh_panel)
             return
         if getattr(self.mission, "category", "transport") == "aerobatic":
             self.mission = MissionRequirements()  # back to a transport mission for the other layouts
@@ -288,6 +710,7 @@ class DesignStudioWindow(QMainWindow):
                 return
         self.rebuild_editors(fit=True)
         self.schedule_analysis()
+        QTimer.singleShot(0, self._refresh_panel)
 
     # ------------------------------------------------------------ editors
     def rebuild_editors(self, fit: bool = False):
@@ -301,12 +724,20 @@ class DesignStudioWindow(QMainWindow):
             for view in (self.top, self.side):
                 view.fit(view.scene().itemsBoundingRect())
 
-    def _poly(self, scene, pts, fill, outline=QColor(220, 225, 235), z=0):
+    def _poly(self, scene, pts, fill, outline=QColor(220, 225, 235), z=0, part=None):
         item = QGraphicsPolygonItem(QPolygonF([QPointF(float(x), float(y)) for x, y in pts]))
+        selected = part is not None and part == self.selected
+        if selected:
+            fill = QColor(fill).lighter(125)
         item.setBrush(QBrush(fill))
-        pen = QPen(outline, 0)
+        pen = QPen(QColor(255, 200, 70) if selected else outline, 2.5 if selected else 0)
+        pen.setCosmetic(True)
         item.setPen(pen)
         item.setZValue(z)
+        item.setData(0, part)
+        if part:
+            item.setCursor(Qt.PointingHandCursor)
+            item.setToolTip(f"{PART_NAMES.get(part, part)} — click to select")
         scene.addItem(item)
         return item
 
@@ -324,16 +755,19 @@ class DesignStudioWindow(QMainWindow):
         hw = fus.half_width(xs)
         L = fus.length
         if arr.has_pod or arr.layout not in ("flying_wing",):
-            self._poly(sc, list(zip(xs, hw)) + list(zip(xs[::-1], -hw[::-1])), QColor(90, 100, 120), z=1)
+            self._poly(sc, list(zip(xs, hw)) + list(zip(xs[::-1], -hw[::-1])), QColor(90, 100, 120), z=1,
+                       part="fuselage")
         for boom in getattr(arr, "bodies", [])[1:]:
             pass
         for ps in arr.surfaces:
             if ps.surface.vertical and ps.role not in ("v_tail",):
                 continue
             colour = {"wing": QColor(70, 120, 190), "canard": QColor(120, 160, 90)}.get(ps.role, QColor(110, 140, 170))
+            part = {"wing": "wing", "canard": "canard"}.get(ps.role, "htail")
             for side in ps.sides:
                 le, te = self._outline_xy(ps, side)
-                self._poly(sc, [(p[0], p[1]) for p in le] + [(p[0], p[1]) for p in te[::-1]], colour, z=2)
+                self._poly(sc, [(p[0], p[1]) for p in le] + [(p[0], p[1]) for p in te[::-1]], colour, z=2,
+                           part=part)
         # control surfaces
         for cs in arr.control_surfaces:
             ps = arr.surface(cs.surface) if hasattr(arr, "surface") else None
@@ -344,14 +778,21 @@ class DesignStudioWindow(QMainWindow):
             hinge = [placement.apply(ps.map_section(e, np.array([[cs.hinge, 0.0]]), cs.side))[0] for e in etas]
             te = [placement.apply(ps.map_section(e, np.array([[1.0, 0.0]]), cs.side))[0] for e in etas]
             self._poly(sc, [(p[0], p[1]) for p in hinge] + [(p[0], p[1]) for p in te[::-1]],
-                       QColor(230, 140, 40, 200), z=3)
+                       QColor(230, 140, 40, 200), z=3, part="wing" if cs.surface == "wing" else
+                       ("canard" if cs.surface == "canard" else "htail"))
         for e in arr.engines:
             x, y = float(e.inlet[0]), float(e.inlet[1])
             rad = getattr(e, "radius", 0.17 * e.length)
             r = QGraphicsRectItem(x, y - rad, e.length, 2 * rad)
-            r.setBrush(QBrush(QColor(170, 170, 180)))
-            r.setPen(QPen(QColor(40, 40, 40), 0))
+            sel = self.selected == "engines"
+            r.setBrush(QBrush(QColor(200, 200, 210) if sel else QColor(170, 170, 180)))
+            pen = QPen(QColor(255, 200, 70) if sel else QColor(40, 40, 40), 2.5 if sel else 0)
+            pen.setCosmetic(True)
+            r.setPen(pen)
             r.setZValue(4)
+            r.setData(0, "engines")
+            r.setCursor(Qt.PointingHandCursor)
+            r.setToolTip("Engines — click to select")
             sc.addItem(r)
         self._top_handles(arr)
 
@@ -362,13 +803,14 @@ class DesignStudioWindow(QMainWindow):
         cz, hh = fus.centre_z(xs), fus.half_height(xs)
         top = list(zip(xs, -(cz + hh)))
         bot = list(zip(xs[::-1], -(cz - hh)[::-1]))
-        self._poly(sc, top + bot, QColor(90, 100, 120), z=1)
+        self._poly(sc, top + bot, QColor(90, 100, 120), z=1, part="fuselage")
         for ps in arr.surfaces:
             side = ps.sides[0]
             le, te = self._outline_xy(ps, side)
             colour = QColor(70, 120, 190) if not ps.surface.vertical else QColor(110, 140, 170)
             if ps.surface.vertical:
-                self._poly(sc, [(p[0], -p[2]) for p in le] + [(p[0], -p[2]) for p in te[::-1]], colour, z=2)
+                self._poly(sc, [(p[0], -p[2]) for p in le] + [(p[0], -p[2]) for p in te[::-1]], colour, z=2,
+                           part="vtail" if ps.role in ("fin", "vtail") else "htail")
             else:
                 path = QPainterPath(QPointF(le[0][0], -le[0][2]))
                 path.lineTo(QPointF(te[0][0], -te[0][2]))
@@ -405,7 +847,7 @@ class DesignStudioWindow(QMainWindow):
                                         for ps in arr.surfaces if ps.role in ("htail", "canard") and ps.key != "wing"]
         seen = set()
         for key, group in groups:
-            if group is None or group in seen:
+            if group is None or group in seen or group != self.selected:
                 continue
             seen.add(group)
             try:
@@ -455,14 +897,17 @@ class DesignStudioWindow(QMainWindow):
                               f"{group} tip chord (taper)"))
         # fuselage length and width
         fus = arr.fuselage
+        if self.selected not in ("fuselage", "engines", "wing"):
+            return
 
         def length(pos):
             Lnew = clamp("fuselage.length", pos.x())
             self.params.set("fuselage.length", Lnew)
             self._live()
             return QPointF(Lnew, 0)
-        sc.addItem(Handle(QPointF(fus.length, 0.0), length, self._released, "square", QColor(200, 200, 210),
-                          "Fuselage length"))
+        if self.selected == "fuselage":
+            sc.addItem(Handle(QPointF(fus.length, 0.0), length, self._released, "square", QColor(200, 200, 210),
+                              "Fuselage length"))
         x_mid = 0.5 * fus.length
 
         def width(pos):
@@ -470,11 +915,12 @@ class DesignStudioWindow(QMainWindow):
             self.params.set("fuselage.diameter", d)
             self._live()
             return QPointF(x_mid, d / 2)
-        sc.addItem(Handle(QPointF(x_mid, float(fus.half_width(np.array([x_mid]))[0])), width, self._released,
-                          "square", QColor(200, 200, 210), "Fuselage diameter"))
+        if self.selected == "fuselage":
+            sc.addItem(Handle(QPointF(x_mid, float(fus.half_width(np.array([x_mid]))[0])), width, self._released,
+                              "square", QColor(200, 200, 210), "Fuselage diameter"))
         # engines along the wing
         wing_eng = [e for e in arr.engines if e.mount == "wing" and e.side > 0]
-        if wing_eng:
+        if wing_eng and self.selected == "engines":
             e = wing_eng[0]
             semi = arr.wing.semi_span
 
@@ -486,6 +932,8 @@ class DesignStudioWindow(QMainWindow):
             sc.addItem(Handle(QPointF(e.inlet[0], e.inlet[1]), eng, self._released, "circle", QColor(200, 200, 200),
                               "Slide the engines along the wing"))
         # ailerons and flaps (right wing)
+        if self.selected != "wing":
+            return
         wing = next(p for p in arr.surfaces if p.key == "wing")
 
         def te_point(eta, xc=1.0):
@@ -531,7 +979,7 @@ class DesignStudioWindow(QMainWindow):
     def _side_handles(self, arr: Arrangement):
         sc = self.side.scene()
         fins = [p for p in arr.surfaces if p.surface.vertical and p.role in ("fin", "vtail")]
-        if not fins:
+        if not fins or self.selected != "vtail":
             return
         ps = fins[0]
         s = ps.surface
@@ -652,6 +1100,7 @@ class DesignStudioWindow(QMainWindow):
                                    f"<table cellspacing=4>{rows}</table>{mission}")
         self.fly_btn.setEnabled(v.flies)
         self.wt_btn.setEnabled(bool(v.evaluation and v.evaluation.converged))
+        self._update_strength_readout()
 
     # ------------------------------------------------------------ actions
     def fly(self):

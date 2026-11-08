@@ -15,6 +15,24 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.8:**
+
+* **Workspace:** two side panels. On the left, the generated aircraft. On
+  the right, one panel that switches between mission, parameters,
+  inspector, structures, library, design studio, wind tunnel and flight
+  simulator. The centre view follows the page. Also a calmer, consistent
+  theme (light and dark).
+* **Choose what to design around:** untick any requirement (noise, boom,
+  span, field length, approach speed, engine-out, cruise, fuel, cabin,
+  aerobatic) and the sizing ignores it. Airworthiness checks always stay on.
+* **G rating** is a mission requirement that sizes the structure.
+* **Per-component strength:** material and reserve factor for the wing,
+  fuselage, tails and gear. These set weight and the g at which each part
+  breaks, in the simulator and the wind tunnel too.
+* **Kerbal-style design studio:** drag parts onto glowing attachment nodes,
+  click a part to edit its dimensions and strength, and press Balance to
+  fix pitch stability.
+
 **New in 0.7:**
 
 * **Stunt planes:** an aerobatic category with ±10 g structure, a symmetric
@@ -108,7 +126,7 @@ python -m aircraft_foundry
 To check the install:
 
 ```bash
-pytest                                   # 161 tests; the GUI test is skipped unless AF_GUI_TESTS=1
+pytest                                   # 168 tests; the GUI test is skipped unless AF_GUI_TESTS=1
 AF_GUI_TESTS=1 pytest tests/test_gui.py  # drives the real window: generate, edit, pick, evolve, save
 python -m aircraft_foundry --self-test   # opens, renders, evaluates, then exits
 ```

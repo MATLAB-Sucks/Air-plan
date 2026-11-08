@@ -660,6 +660,11 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             event.ignore()
             return
+        for tool in list(self.tool_windows.values()):  # stop embedded tools' timers before their views go
+            try:
+                tool.close()
+            except Exception:
+                pass
         s = app_settings()
         s.setValue("geometry", self.saveGeometry())
         s.setValue("window_state", self.saveState())

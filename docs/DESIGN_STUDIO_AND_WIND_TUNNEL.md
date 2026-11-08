@@ -1,64 +1,52 @@
 # Design studio and wind tunnel
 
-## Design studio (🛠 Studio, F6)
+## Design studio (Kerbal-style) — 🛠 Design studio page
 
-![design studio](design-studio.png)
+![design studio](workspace-studio.png)
 
-Build or reshape an aircraft by dragging, then find out whether it flies.
+**Build by dragging parts.** Drag a part from the **Parts** bin into the top
+view or the side view. While you drag, every place that part can attach
+lights up as a **green node**, and the nearest one turns yellow. Drop it to
+attach the part there.
 
-**Parts palette (left)**
-
-* **Layout:** conventional, canard, flying wing, blended wing body, twin boom
-  or supersonic delta. Choosing one sizes a fresh starting design for your
-  mission.
-* **Tail:** conventional, T-tail, V-tail or twin fins.
-* **Engine position:** on the wing, rear fuselage, upper aft, pusher or under
-  the wing.
-* **Engine settings:** count (1 to 4), type (jet or propeller) and wing
-  height.
-
-Each choice re-sizes the tails and finishes the design (gear, structure) so
-that it stays consistent.
-
-**Top and side views (drag the handles)**
-
-| Handle | Edits |
+| Part | Where it attaches |
 |---|---|
-| ◆ yellow | moves a wing, tail or canard along the fuselage |
-| ● orange at a tip | span and sweep |
-| ■ blue | root chord (at the root trailing edge) and taper (at the tip trailing edge) |
-| grey ■ | fuselage length and diameter |
-| grey ● | slides the engines along the wing |
-| orange (control surfaces) | aileron inner and outer edges and chord, flap span and chord, rudder chord (side view) |
-| side view ● / ■ | fin height and sweep, fin chord |
+| Main wing | along the fuselage (top view) or low / mid / high (side view) |
+| Tailplane, T-tail, V-tail, twin fins | the tail (T-tail also on the fin tip in the side view) |
+| Canard | near the nose (the wing moves aft) |
+| Jet engines | under the wing (inboard or outboard; a second pair makes four), the rear fuselage, on top (side view) or the tail cone |
+| Propeller engines | the wing |
+| Nose propeller | the nose |
+| Pusher propeller | the tail cone |
+| Twin booms | the wing |
+| Flying-wing kit, blended-body kit | anywhere: converts the whole aircraft |
 
-Every handle edits a real design parameter, clamped to its valid range. So
-whatever you build stays a consistent aircraft that the evaluator,
-structures, flight model and wind tunnel can all analyse.
+**Select a part** by clicking it, or pick it from the list. It is outlined
+in gold, and only its drag handles appear:
 
-**Will it fly? (right)**
+* ◆ moves it;
+* ● at a tip sets span and sweep;
+* ■ sets chords and taper;
+* orange handles set control-surface edges and chord.
 
-The verdict updates as you drag. It asks two separate questions.
+**The properties panel** shows every dimension of the selected part, and:
 
-*Can it fly at all?*
+* **Strength**, for the wing, tails, fuselage and landing gear: a material
+  plus a **reserve factor** (1 means sized exactly to the design ultimate
+  load; 2 means twice as strong). It reads out the g at which the part
+  breaks and what it weighs. The *Whole aircraft* entry holds the **g
+  rating** and the safety factor.
+* **Remove part** (or the Delete key) works where the result is still an
+  aircraft: removing the tail makes a flying wing, removing the canard or
+  booms makes a conventional layout. The wing, fuselage, engines and gear
+  can be reshaped but not removed.
 
-* Do the weights close?
-* Is it stable in pitch (static margin), or flyable only with fly-by-wire?
-* Is it stable in yaw, or flyable with yaw augmentation (like the B-2)?
-* Can the elevator trim it at landing speed with full flaps?
-* Is roll control enough (pb/2V ≥ 0.05)?
-* Is there enough thrust to climb?
-* Is the structure strong enough?
+**Will it fly?** updates as you build. **⚖ Balance** moves the wing to
+restore pitch stability after you move heavy parts, for example rear
+engines. **✈ Fly it** and **🌬 Wind tunnel** open those pages with this
+design, and **Add to project** adds it to the generated aircraft.
 
-*Does it meet the mission?* Every evaluator requirement it misses is listed.
-
-**Buttons**
-
-* **✈ Fly it** opens the simulator (only when the aircraft can fly).
-* **🌬 Wind tunnel** opens the wind tunnel.
-* **Add to project** adds the design to the gallery.
-
-## Wind tunnel (🌬 Wind tunnel, F7)
+## Wind tunnel — 🌬 Wind tunnel page
 
 ![wind tunnel](wind-tunnel.png)
 
@@ -86,8 +74,8 @@ The design sits in a flow computed by a **vortex-lattice method**
 * **Surface colours**, either:
   * *lifting pressure (ΔCp)*: where the lift is generated; or
   * *structural stress at any load factor*: the sized wing box's
-    ultimate-load margins scaled to the chosen g. Magenta means that part
-    has failed.
+    ultimate-load margins scaled to the chosen g and the wing's strength
+    reserve. Magenta means that part has failed.
 * **Readouts:**
   * CL, induced drag, Cm and side force;
   * lift in kN compared with the take-off weight;

@@ -246,3 +246,58 @@ def test_studio_stunt_plane_button(app):
     assert w.mission.category == "aerobatic" and w.params.structure.limit_load_factor == 10.0
     assert w.verdict.flies
     w.close()
+
+
+def test_studio_parts_drop_select_strength(app):
+    from aircraft_foundry.app.design_studio import DesignStudioWindow, Handle
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    app.processEvents()
+
+    def drop(kind, view, pick=lambda n: True):
+        node = [n for n in w.nodes_for(kind, view) if pick(n)][0]
+        w.drop_part(kind, node, view)
+        for _ in range(4):
+            app.processEvents()
+        w.refresh_analysis()
+
+    assert len(w.side.scene().items()) and w.selected == "wing"
+    drop("jet_pair", "top", lambda n: n[1][0] == "rear")
+    assert w.params.configuration.engine_layout == "rear_fuselage"
+    w.balance()
+    w.refresh_analysis()
+    assert w.verdict.evaluation.metrics["static_margin"] > 0.02  # balanced again
+    drop("wing", "side", lambda n: n[1] == ("wing_z", "high"))
+    assert w.params.configuration.wing_position == "high"
+    drop("t_tail", "top")
+    assert w.params.configuration.tail_type == "t_tail"
+    w.select("htail")
+    w.remove_selected()
+    assert w.params.configuration.layout == "flying_wing"
+    drop("canard", "top")
+    assert w.params.configuration.layout == "canard" and "canard" in w.parts_present()
+    w.select("wing")
+    app.processEvents()
+    assert sum(isinstance(i, Handle) for i in w.top.scene().items()) > 3  # gizmos for the selected part only
+    w.select("engines")
+    assert sum(isinstance(i, Handle) for i in w.top.scene().items()) <= 1
+    w.select("wing")
+    w.set_value("structure.wing_strength", 2.0)
+    w.refresh_analysis()
+    assert "Breaks at" in w.strength_readout.text()
+    w.top.show_nodes("jet_pair", w.nodes_for("jet_pair", "top")[0][0])
+    assert len(w.top._node_items) == len(w.nodes_for("jet_pair", "top"))  # attachment nodes light up
+    w.close()
+
+
+def test_requirement_checklist_round_trip(app):
+    from aircraft_foundry.app.mission_panel import MissionPanel
+    from aircraft_foundry.core.mission import MissionRequirements
+    p = MissionPanel()
+    p.set_mission(MissionRequirements(ignore="airport_noise,cabin_noise", g_limit=4.0))
+    assert not p.req_boxes["airport_noise"].isChecked() and p.req_boxes["span"].isChecked()
+    m = p.mission()
+    assert set(m.ignore.split(",")) == {"airport_noise", "cabin_noise"} and m.g_limit == 4.0
