@@ -35,23 +35,32 @@ jobs:
 
       - name: Build application (macOS)
         if: runner.os == 'macOS'
-        run: pyinstaller --noconfirm packaging/aircraft_foundry.spec
+        run: |
+          if ! pyinstaller --noconfirm packaging/aircraft_foundry.spec > pyinstaller.log 2>&1; then
+            msg=$(tail -40 pyinstaller.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=PyInstaller failed::$msg"
+            exit 1
+          fi
 
       - name: Build application (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           # PyInstaller may trigger 0xc0000374 (heap corruption) on Windows during Python
-          # process teardown even when the build succeeded. We verify the final binary exists.
-          pyinstaller --noconfirm packaging/aircraft_foundry.spec
-          $exitCode = $LASTEXITCODE
-
+          # process teardown even when the build succeeded, so success = the executable exists.
+          # PyInstaller's output is saved; on failure its last lines are attached to the job as an
+          # error annotation (readable through the GitHub API, unlike the raw log).
+          $ErrorActionPreference = "Continue"
+          pyinstaller --noconfirm packaging/aircraft_foundry.spec *> pyinstaller.log
+          $code = $LASTEXITCODE
           if (Test-Path "dist\AircraftFoundry\AircraftFoundry.exe") {
-            Write-Host "Build output verified: dist\AircraftFoundry\AircraftFoundry.exe exists."
-          } else {
-            Write-Error "Build failed: Output executable dist\AircraftFoundry\AircraftFoundry.exe was not created."
-            exit 1
+            Write-Host "Build output verified: dist\AircraftFoundry\AircraftFoundry.exe exists (PyInstaller exit $code)."
+            exit 0   # GitHub's pwsh wrapper would otherwise exit with PyInstaller's teardown code
           }
+          $tail = (Get-Content pyinstaller.log -Tail 40) -join "`n"
+          $msg = $tail.Replace("%", "%25").Replace("`r", "").Replace("`n", "%0A")
+          Write-Host "::error title=PyInstaller failed (exit $code)::$msg"
+          exit 1
 
       - name: Self-test packaged app (macOS)
         if: runner.os == 'macOS'
@@ -66,7 +75,12 @@ jobs:
           if (Test-Path selftest.txt) {
             Get-Content selftest.txt
           }
-          if ($p.ExitCode -ne 0) { exit 1 }
+          if ($p.ExitCode -ne 0) {
+            $log = if (Test-Path selftest.txt) { (Get-Content selftest.txt -Tail 40) -join "`n" } else { "no self-test log written" }
+            $msg = $log.Replace("%", "%25").Replace("`r", "").Replace("`n", "%0A")
+            Write-Host "::error title=Self-test failed (exit $($p.ExitCode))::$msg"
+            exit 1
+          }
 
       - name: Archive macOS app (keeps symlinks and permissions)
         if: runner.os == 'macOS'
