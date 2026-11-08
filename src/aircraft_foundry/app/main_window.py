@@ -205,6 +205,8 @@ class MainWindow(QMainWindow):
         idx = self.page_keys.index(key)
         page = self.pages.widget(idx)
         page.layout().removeWidget(page.body)
+        page.body.hide()  # hide and detach now: deleteLater only runs on a later event-loop pass
+        page.body.setParent(None)
         page.body.deleteLater()
         page.body = side
         page.layout().addWidget(side, 1)
