@@ -50,8 +50,7 @@ class MissionPanel(QScrollArea):
         form.addRow(self.derived)
         lay.addWidget(box)
         req = QGroupBox("Design around these requirements")
-        req.setToolTip("Untick anything you don't care about: the design will not be sized around it.
-"
+        req.setToolTip("Untick anything you don't care about: the design will not be sized around it.\n"
                        "Stability, trim, structure and landing-gear checks always stay on.")
         rg = QGridLayout(req)
         self.req_boxes: dict[str, QCheckBox] = {}

@@ -15,7 +15,8 @@ def main(argv: list[str] | None = None) -> int:
     # The viewport uses VTK's default QWidget-based interactor, which creates its
     # own native OpenGL context (Cocoa on macOS); no Qt surface format is needed.
     app = QApplication(sys.argv if argv is None else argv)
-    app.setStyle("Fusion")
+    from .theme import apply_theme
+    apply_theme(app)
     from .main_window import MainWindow
     window = MainWindow()
     args = [a for a in app.arguments()[1:] if not a.startswith("-psn_")]  # macOS Finder adds -psn_*

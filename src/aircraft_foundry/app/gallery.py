@@ -54,7 +54,32 @@ class CandidateGallery(QTableWidget):
         self.setSortingEnabled(True)
         self.setAlternatingRowColors(True)
         self.cellDoubleClicked.connect(lambda r, _c: self._activate(r))
+        self.cellClicked.connect(lambda r, _c: self._activate(r))  # one click shows the aircraft
+        self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.horizontalHeader().customContextMenuRequested.connect(self._column_menu)
+        self.setToolTip("Click an aircraft to show it. Right-click the header to choose which figures to compare.")
         self.itemSelectionChanged.connect(lambda: self.selection_changed_ids.emit(self.selected_ids()))
+
+    COMPACT = ("", "Name", "Status", "MTOW kg")
+
+    def set_compact(self, compact: bool = True) -> None:
+        """Narrow side-panel view: thumbnail, name, status and MTOW (other columns via the header menu)."""
+        for i, (label, _, _) in enumerate(COLUMNS):
+            self.setColumnHidden(i, compact and label not in self.COMPACT)
+        self.setIconSize(QSize(96, 70) if compact else QSize(132, 96))
+        self.verticalHeader().setDefaultSectionSize(76 if compact else 100)
+
+    def _column_menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        for i, (label, _, _) in enumerate(COLUMNS):
+            if not label:
+                continue
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(not self.isColumnHidden(i))
+            act.toggled.connect(lambda on, i=i: self.setColumnHidden(i, not on))
+        menu.exec(self.horizontalHeader().mapToGlobal(pos))
 
     def _activate(self, row: int) -> None:
         item = self.item(row, 1)

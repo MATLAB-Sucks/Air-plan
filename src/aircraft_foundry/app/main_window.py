@@ -10,8 +10,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QDockWidget, QFileDialog, QInputDialog, QLabel, QMainWindow, QMessageBox,
-                               QProgressBar, QTabWidget)
+from PySide6.QtWidgets import (QDockWidget, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QListWidget,
+                               QMainWindow, QMessageBox, QProgressBar, QPushButton, QStackedWidget, QTabWidget,
+                               QVBoxLayout, QWidget)
 
 from .. import __version__
 from ..core.design import AircraftDesign
@@ -51,35 +52,58 @@ class MainWindow(QMainWindow):
         self.task: Task | None = None
         self.dirty = False
 
+        # ---------------- layout: left = generated aircraft, centre = view, right = one switchable panel
         self.viewport = Viewport(self)
-        self.setCentralWidget(self.viewport)
-        fly_btn = self.viewport.toolbar.addAction("✈ Fly")
-        fly_btn.setToolTip("Flight-test the selected design in the simulator (F5)")
-        fly_btn.triggered.connect(lambda: self.fly())
-        studio_btn = self.viewport.toolbar.addAction("🛠 Studio")
-        studio_btn.setToolTip("Build or reshape a design by dragging parts, and see if it flies (F6)")
-        studio_btn.triggered.connect(self.open_studio)
-        wt_btn = self.viewport.toolbar.addAction("🌬 Wind tunnel")
-        wt_btn.setToolTip("See the airflow, pressure and structural stress on the selected design (F7)")
-        wt_btn.triggered.connect(self.open_wind_tunnel)
+        self.centre = QStackedWidget()
+        self.centre.addWidget(self.viewport)
+        self.setCentralWidget(self.centre)
+        for label, tip, slot in (("✈ Fly", "Flight-test the selected design (F5)", lambda: self.fly()),
+                                 ("🛠 Studio", "Build or reshape a design by dragging parts (F6)", self.open_studio),
+                                 ("🌬 Wind tunnel", "Airflow, pressure and stress on the design (F7)",
+                                  self.open_wind_tunnel)):
+            act_ = self.viewport.toolbar.addAction(label)
+            act_.setToolTip(tip)
+            act_.triggered.connect(slot)
 
+        self.gallery = CandidateGallery()
+        self.gallery.set_compact(True)
+        self.gallery_dock = self._dock("Generated aircraft", self.gallery, Qt.LeftDockWidgetArea)
         self.mission_panel = MissionPanel()
-        self._dock("Mission and generation", self.mission_panel, Qt.LeftDockWidgetArea)
-        right = QTabWidget()
         self.inspector = Inspector()
         self.param_editor = ParameterEditor()
         self.structures = StructuresPanel()
-        right.addTab(self.inspector, "Inspector")
-        right.addTab(self.param_editor, "Parameters")
-        right.addTab(self.structures, "Structures")
-        self._dock("Design", right, Qt.RightDockWidgetArea)
-        self.gallery = CandidateGallery()
-        gallery_dock = self._dock("Candidate comparison", self.gallery, Qt.BottomDockWidgetArea)
         where = "Portable (USB)" if self.location.portable else "This computer"
         self.library_panel = LibraryPanel(self.library, f"{where}: {self.location.root}")
-        self.library_dock = self._dock("Design library", self.library_panel, Qt.BottomDockWidgetArea)
-        self.tabifyDockWidget(gallery_dock, self.library_dock)
-        gallery_dock.raise_()
+        self.pages = QStackedWidget()
+        self.nav = QListWidget()
+        self.nav.setObjectName("nav")
+        self.nav.setFixedWidth(150)
+        self.page_keys: list[str] = []
+        self.tool_windows: dict[str, object] = {}  # studio / wind tunnel / simulator behind their pages
+        for key, title, widget in (("mission", "🎯  Mission", self.mission_panel),
+                                   ("parameters", "🔧  Parameters", self.param_editor),
+                                   ("inspector", "🔍  Inspector", self.inspector),
+                                   ("structures", "🏗  Structures", self.structures),
+                                   ("library", "📚  Library", self.library_panel),
+                                   ("studio", "🛠  Design studio", self._placeholder("studio")),
+                                   ("tunnel", "🌬  Wind tunnel", self._placeholder("tunnel")),
+                                   ("simulator", "✈  Flight simulator", self._placeholder("simulator"))):
+            self.nav.addItem(title)
+            self.pages.addWidget(self._page(title.split("  ", 1)[1], widget))
+            self.page_keys.append(key)
+        self.nav.currentRowChanged.connect(self._page_changed)
+        right = QWidget()
+        rl = QHBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(0)
+        rl.addWidget(self.nav)
+        rl.addWidget(self.pages, 1)
+        self.right_dock = self._dock("Workspace", right, Qt.RightDockWidgetArea)
+        self.right_dock.setMinimumWidth(560)
+        for d in (self.gallery_dock, self.right_dock):
+            d.setFeatures(QDockWidget.NoDockWidgetFeatures)
+        self.gallery_dock.setMinimumWidth(300)
+        self.nav.setCurrentRow(0)
 
         self.progress = QProgressBar()
         self.progress.setMaximumWidth(260)
@@ -113,6 +137,83 @@ class MainWindow(QMainWindow):
             self.viewport.start()
 
     # ------------------------------------------------------------ ui scaffolding
+    # ------------------------------------------------------------ pages
+    def _page(self, title: str, widget) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(10, 6, 10, 6)
+        head = QLabel(title)
+        head.setObjectName("pageTitle")
+        lay.addWidget(head)
+        lay.addWidget(widget, 1)
+        page.body = widget
+        return page
+
+    def _placeholder(self, key: str) -> QWidget:
+        text = {"studio": "Select a generated aircraft (left) — or open the studio to start a new design.",
+                "tunnel": "Select a generated aircraft whose weights close to put it in the wind tunnel.",
+                "simulator": "Select a generated aircraft whose weights close to fly it."}[key]
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setObjectName("hint")
+        lay.addWidget(lbl)
+        btn = QPushButton({"studio": "Open the design studio", "tunnel": "Open the wind tunnel",
+                           "simulator": "Fly the selected aircraft"}[key])
+        btn.setObjectName("primary")
+        btn.clicked.connect({"studio": self.open_studio, "tunnel": self.open_wind_tunnel,
+                             "simulator": lambda: self.fly()}[key])
+        lay.addWidget(btn)
+        lay.addStretch(1)
+        return w
+
+    def show_page(self, key: str) -> None:
+        self.nav.setCurrentRow(self.page_keys.index(key))
+
+    def _page_changed(self, row: int) -> None:
+        self.pages.setCurrentIndex(row)
+        key = self.page_keys[row]
+        tool = self.tool_windows.get(key)
+        self.centre.setCurrentWidget(tool.embedded_centre if tool is not None else self.viewport)
+        sim = self.tool_windows.get("simulator")
+        if sim is not None:  # the simulator only runs while its page is showing
+            (sim.timer.start(16) if key == "simulator" else sim.timer.stop())
+            if key == "simulator":
+                sim.vtk_widget.setFocus()
+
+    def embed_tool(self, key: str, window) -> None:
+        """Show a tool (QMainWindow with one central view and side docks) as a page of this window."""
+        old = self.tool_windows.pop(key, None)
+        if old is not None:
+            try:
+                old.close()
+            except Exception:
+                pass
+            self.centre.removeWidget(old.embedded_centre)
+            old.embedded_centre.deleteLater()
+        centre = window.takeCentralWidget()
+        docks = window.findChildren(QDockWidget)
+        if len(docks) == 1:
+            side = docks[0].widget()
+        else:
+            side = QTabWidget()
+            for d in docks:
+                side.addTab(d.widget(), d.windowTitle())
+        window.embedded_centre = centre
+        self.centre.addWidget(centre)
+        idx = self.page_keys.index(key)
+        page = self.pages.widget(idx)
+        page.layout().removeWidget(page.body)
+        page.body.deleteLater()
+        page.body = side
+        page.layout().addWidget(side, 1)
+        self.tool_windows[key] = window
+        if self.nav.currentRow() == idx:
+            self._page_changed(idx)
+        else:
+            self.show_page(key)
+
     def _dock(self, title, widget, area):
         dock = QDockWidget(title, self)
         dock.setObjectName(title)
@@ -142,7 +243,7 @@ class MainWindow(QMainWindow):
         act(fm, "Quit", self.close, QKeySequence.Quit)
         lm = self.menuBar().addMenu("&Library")
         act(lm, "Save current design to library…", self.save_to_library, "Ctrl+L")
-        act(lm, "Show library", lambda: (self.library_dock.show(), self.library_dock.raise_()))
+        act(lm, "Show library", lambda: self.show_page("library"))
         sm = self.menuBar().addMenu("&Simulate")
         act(sm, "✈ Fly this design (flight test)…", self.fly, "F5")
         act(sm, "✈ Fly from cruise (trimmed)…", lambda: self.fly("cruise"))
@@ -350,7 +451,7 @@ class MainWindow(QMainWindow):
         self._mark_dirty()
 
     def open_studio(self):
-        """Design studio, starting from the active design (or a fresh one for the current mission)."""
+        """Design studio page, starting from the active design (or a fresh one for the current mission)."""
         from .design_studio import DesignStudioWindow
         c = self.candidate
         if c is not None:
@@ -358,10 +459,17 @@ class MainWindow(QMainWindow):
         else:
             from ..core.synthesis import baseline, configurations_for
             params = baseline(self.project.mission, configurations_for(self.project.mission)[0])
-        self.studio = DesignStudioWindow(params, self.project.mission, None,
-                                         name=(c.name + " (studio)") if c is not None else "Studio design")
-        self.studio.send_to_project.connect(self.add_studio_design)
-        self.studio.show()
+        studio = DesignStudioWindow(params, self.project.mission, None,
+                                    name=(c.name + " (studio)") if c is not None else "Studio design")
+        studio.send_to_project.connect(self.add_studio_design)
+        for btn, slot in ((studio.fly_btn, lambda: self._open_sim(studio.design, studio.mission,
+                                                                   studio.verdict.evaluation)),
+                          (studio.wt_btn, lambda: self._open_tunnel(studio.design, studio.mission,
+                                                                     studio.verdict.evaluation))):
+            btn.clicked.disconnect()
+            btn.clicked.connect(slot)
+        self.studio = studio
+        self.embed_tool("studio", studio)
 
     def add_studio_design(self, params):
         n = sum(1 for c in self.project.candidates if c.origin == "design studio") + 1
@@ -376,26 +484,38 @@ class MainWindow(QMainWindow):
     def open_wind_tunnel(self):
         c = self.candidate
         if self.design is None or c is None or c.evaluation is None or not c.evaluation.converged:
-            QMessageBox.information(self, "Wind tunnel", "Load a design whose weights close first.")
+            self.show_page("tunnel")
+            self.status_label.setText("Select a generated aircraft whose weights close to use the wind tunnel.")
             return
-        from .wind_tunnel import WindTunnelWindow
-        self.wt_window = WindTunnelWindow(self.design, self.project.mission, c.evaluation, None)
-        self.wt_window.show()
+        self._open_tunnel(self.design, self.project.mission, c.evaluation)
 
-    def fly(self, start: str = "runway"):
-        """Open the flight-test simulator with the active design."""
-        c = self.candidate
-        if self.design is None or c is None or c.evaluation is None or not c.evaluation.converged:
-            QMessageBox.information(self, "Flight test", "Load a design whose weights close before flying it.")
+    def _open_tunnel(self, design, mission, evaluation):
+        from .wind_tunnel import WindTunnelWindow
+        if evaluation is None or not evaluation.converged:
             return
+        self.wt_window = WindTunnelWindow(design, mission, evaluation, None)
+        self.embed_tool("tunnel", self.wt_window)
+
+    def _open_sim(self, design, mission, evaluation, start: str = "runway"):
         from ..simulator.window import SimulatorWindow
+        if evaluation is None or not evaluation.converged:
+            return
         try:
-            self.sim_window = SimulatorWindow(self.design, self.project.mission, c.evaluation, None, start)
+            self.sim_window = SimulatorWindow(design, mission, evaluation, None, start)
         except Exception as exc:
             QMessageBox.critical(self, "Flight test", f"Could not build a flight model for this design:\n{exc}")
             return
-        self.sim_window.show()
-        self.sim_window.vtk_widget.setFocus()
+        self.sim_window.timer.stop()
+        self.embed_tool("simulator", self.sim_window)
+
+    def fly(self, start: str = "runway"):
+        """Open the flight-test simulator page with the active design."""
+        c = self.candidate
+        if self.design is None or c is None or c.evaluation is None or not c.evaluation.converged:
+            self.show_page("simulator")
+            self.status_label.setText("Select a generated aircraft whose weights close to fly it.")
+            return
+        self._open_sim(self.design, self.project.mission, c.evaluation, start)
 
     def select_component(self, cid: str | None):
         self.selected_component = cid
@@ -532,7 +652,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geo)
         state = s.value("window_state")
         if state is not None:
-            self.restoreState(state)
+            pass  # dock layout is fixed (two panels); older saved layouts are ignored
 
     def closeEvent(self, event):
         if self.task and self.task.running:

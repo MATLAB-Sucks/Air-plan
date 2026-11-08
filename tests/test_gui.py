@@ -1,5 +1,6 @@
 """GUI smoke test.  Needs a display with OpenGL (on Linux CI: xvfb-run)."""
 import numpy as np
+from PySide6.QtWidgets import QDockWidget
 import os
 import time
 
@@ -65,10 +66,17 @@ def test_generate_edit_pick_evolve_save(app, tmp_path):
     assert w.library.count() == 1
     w.open_from_library(w.library.list()[0].id)
     assert w.candidate.name == "GUI test"
-    w.fly()  # the Fly button opens the flight-test window on the active design
-    assert w.sim_window.isVisible()
-    w.sim_window.timer.stop()
-    w.sim_window.close()
+    w.fly()  # the Fly button opens the flight-test page on the active design (centre + right panel)
+    assert w.page_keys[w.nav.currentRow()] == "simulator" and w.centre.currentWidget() is w.sim_window.embedded_centre
+    assert w.sim_window.timer.isActive()
+    w.show_page("mission")  # leaving the page pauses the simulator and restores the main 3-D view
+    assert not w.sim_window.timer.isActive() and w.centre.currentWidget() is w.viewport
+    w.open_wind_tunnel()
+    assert w.page_keys[w.nav.currentRow()] == "tunnel"
+    w.open_studio()
+    assert w.page_keys[w.nav.currentRow()] == "studio"
+    assert len([d for d in w.findChildren(QDockWidget) if d.isVisible()]) == 2  # only two side panels
+    w.show_page("mission")
     w.project.path = tmp_path / "gui.afproj"
     assert w.save_project()
     assert len(Project.load(tmp_path / "gui.afproj").candidates) == w.gallery.rowCount()
