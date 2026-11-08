@@ -112,6 +112,10 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("Define a mission and press Generate.")
         self.statusBar().addWidget(self.status_label, 1)
         self.statusBar().addPermanentWidget(self.progress)
+        self.update_btn = QPushButton("⟳ Check for updates")
+        self.update_btn.setFlat(True)
+        self.update_btn.clicked.connect(self.check_updates)
+        self.statusBar().addPermanentWidget(self.update_btn)
         data_label = QLabel(("💾 Portable data: " if self.location.portable else "Data: ") + str(self.location.root))
         data_label.setToolTip(f"Found via {self.location.source}")
         self.statusBar().addPermanentWidget(data_label)
@@ -135,6 +139,26 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_started", False):
             self._started = True
             self.viewport.start()
+            from .update_dialog import check_in_background
+            check_in_background(self._update_found)
+
+    # ------------------------------------------------------------ updates
+    def _update_found(self, info):
+        if info is not None:
+            self._pending_update = info
+            self.update_btn.setText(f"⬆ Update available ({info.version})")
+            self.update_btn.setObjectName("primary")
+            self.update_btn.setStyleSheet(self.update_btn.styleSheet())
+
+    def check_updates(self):
+        from .update_dialog import UpdateDialog
+        dlg = UpdateDialog(self.location, self.location.library_path, self, getattr(self, "_pending_update", None))
+        if dlg.exec() and getattr(dlg, "apply_command", None):
+            if self.close():  # asks about unsaved changes first; closing stops all tools
+                from .. import updater
+                updater.launch_detached(dlg.apply_command)
+                from PySide6.QtWidgets import QApplication
+                QApplication.quit()
 
     # ------------------------------------------------------------ ui scaffolding
     # ------------------------------------------------------------ pages
@@ -256,6 +280,7 @@ class MainWindow(QMainWindow):
         for name in ("iso", "front", "side", "top", "rear"):
             act(vm, f"{name.title()} view", lambda _=False, n=name: self.viewport.view(n))
         hm = self.menuBar().addMenu("&Help")
+        act(hm, "Check for updates…", self.check_updates)
         act(hm, "About Aircraft Foundry", self.about)
 
     def _set_busy(self, busy: bool, text: str = ""):

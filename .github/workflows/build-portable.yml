@@ -1,6 +1,8 @@
 # Builds the Windows and Intel-macOS apps, runs the tests and the packaged
 # self-test on each, and assembles one downloadable USB folder.
 # Trigger: Actions tab > "Build portable USB edition" > Run workflow (or push a tag v*).
+# Pushing a version tag (v0.9.0) also publishes a GitHub Release that the app's
+# "Check for updates" installs from: Windows zip, macOS zip, USB zip and SHA256SUMS.txt.
 name: Build portable USB edition
 
 on:
@@ -77,3 +79,43 @@ jobs:
         with:
           name: AircraftFoundry-Portable
           path: AircraftFoundry-Portable.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: assemble
+    runs-on: macos-15-intel   # ditto keeps the .app's symlinks and permissions
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: mac, path: art-mac }
+      - uses: actions/download-artifact@v4
+        with: { name: windows, path: art-win/AircraftFoundry }
+      - uses: actions/download-artifact@v4
+        with: { name: AircraftFoundry-Portable, path: art-usb }
+      - name: Package release assets
+        run: |
+          mkdir release
+          cp art-mac/mac-app.zip release/AircraftFoundry-macOS.zip
+          (cd art-win && ditto -c -k --keepParent AircraftFoundry ../release/AircraftFoundry-Windows.zip)
+          cp art-usb/AircraftFoundry-Portable.zip release/
+          (cd release && shasum -a 256 *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Release notes from the changelog
+        run: |
+          python3 - <<'EOF'
+          import re, os
+          tag = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = open("CHANGELOG.md").read() if os.path.exists("CHANGELOG.md") else ""
+          m = re.search(r"^## " + re.escape(tag) + r".*?\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+          open("release-notes.md", "w").write(m.group(1).strip() if m else f"Aircraft Foundry {tag}")
+          EOF
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Aircraft Foundry ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            release/AircraftFoundry-Windows.zip
+            release/AircraftFoundry-macOS.zip
+            release/AircraftFoundry-Portable.zip
+            release/SHA256SUMS.txt
