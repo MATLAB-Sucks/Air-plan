@@ -108,11 +108,13 @@ def osm(lat0, lon0, half) -> dict:
     lat_n, lon_w = latlon(np.array(half), np.array(-half), lat0, lon0)
     lat_s, lon_e = latlon(np.array(-half), np.array(half), lat0, lon0)
     bbox = f"{float(lat_s)},{float(lon_w)},{float(lat_n)},{float(lon_e)}"
+    # one geometry mode per output statement: runway shapes need "geom", airfields / places "center"
     q = f"""[out:json][timeout:120];
-(way["aeroway"="runway"]({bbox});
- way["aeroway"="aerodrome"]({bbox}); node["aeroway"="aerodrome"]({bbox}); relation["aeroway"="aerodrome"]({bbox});
+way["aeroway"="runway"]({bbox});
+out tags geom;
+(way["aeroway"="aerodrome"]({bbox}); node["aeroway"="aerodrome"]({bbox}); relation["aeroway"="aerodrome"]({bbox});
  node["place"~"town|village|city"]({bbox}););
-out tags geom center;"""
+out tags center;"""
     for url in OVERPASS:
         try:
             return json.loads(get(url, urllib.parse.urlencode({"data": q}).encode()))
