@@ -1,0 +1,1105 @@
+{
+ "name": "lasham",
+ "title": "Lasham (real terrain)",
+ "lat0": 51.1872,
+ "lon0": -1.0335,
+ "size_m": 40000.0,
+ "spacing_m": 50.0,
+ "runways": [],
+ "aerodromes": [
+  {
+   "name": "West Tisted Airfield",
+   "icao": "",
+   "north": -15555.45859004331,
+   "east": -1635.9186248491005
+  },
+  {
+   "name": "Shear Down Farm Airstrip",
+   "icao": "",
+   "north": 10006.831750479725,
+   "east": -10766.36109282923
+  },
+  {
+   "name": "RAF Odiham",
+   "icao": "EGVO",
+   "north": 5378.9100230265785,
+   "east": 6379.265120159318
+  },
+  {
+   "name": "Lasham Airfield",
+   "icao": "EGHL",
+   "north": -308.1545002099704,
+   "east": 42.50668944329955
+  },
+  {
+   "name": "Popham Airfield",
+   "icao": "EGHP",
+   "north": 1028.7421028374736,
+   "east": -14069.163618998418
+  },
+  {
+   "name": "Frensham",
+   "icao": "",
+   "north": -4070.323648301838,
+   "east": 15701.10965604911
+  },
+  {
+   "name": "Walkeridge Farm Airstrip",
+   "icao": "",
+   "north": 11678.514038669222,
+   "east": -14966.083341006137
+  },
+  {
+   "name": "South Longwood Farm Airstrip",
+   "icao": "",
+   "north": -18720.44426509801,
+   "east": -16061.688208553993
+  },
+  {
+   "name": "Blackbushe Airport",
+   "icao": "EGLK",
+   "north": 15200.024007024615,
+   "east": 12944.468257642371
+  },
+  {
+   "name": "Farnborough Airport",
+   "icao": "EGLF",
+   "north": 9877.90123303536,
+   "east": 17940.37376460135
+  }
+ ],
+ "places": [
+  {
+   "name": "Hill Brow",
+   "kind": "village",
+   "north": -17437.210333649007,
+   "east": 10882.367625995908
+  },
+  {
+   "name": "Rake",
+   "kind": "village",
+   "north": -15934.23298816487,
+   "east": 12462.774563451052
+  },
+  {
+   "name": "Rogate",
+   "kind": "village",
+   "north": -19903.802913434676,
+   "east": 12710.329508364252
+  },
+  {
+   "name": "Hammer",
+   "kind": "village",
+   "north": -11425.334310191629,
+   "east": 19787.153168120192
+  },
+  {
+   "name": "Lynchmere",
+   "kind": "village",
+   "north": -12829.581680307821,
+   "east": 19061.863177909556
+  },
+  {
+   "name": "Milland",
+   "kind": "village",
+   "north": -16802.153868596564,
+   "east": 15842.910132096515
+  },
+  {
+   "name": "Woolmer Hill",
+   "kind": "village",
+   "north": -10863.155000061965,
+   "east": 19665.982270815548
+  },
+  {
+   "name": "Steep",
+   "kind": "village",
+   "north": -18240.215615905483,
+   "east": 6105.282012208095
+  },
+  {
+   "name": "Chilcomb",
+   "kind": "village",
+   "north": -14982.660164419038,
+   "east": -17024.60864363401
+  },
+  {
+   "name": "Cheriton",
+   "kind": "village",
+   "north": -14946.644127678304,
+   "east": -9498.032289476643
+  },
+  {
+   "name": "Easton",
+   "kind": "village",
+   "north": -11266.247728641234,
+   "east": -16680.234067675367
+  },
+  {
+   "name": "Owslebury",
+   "kind": "village",
+   "north": -19907.961603690794,
+   "east": -16304.970879220811
+  },
+  {
+   "name": "Twyford",
+   "kind": "village",
+   "north": -18785.871359935452,
+   "east": -19631.68559615569
+  },
+  {
+   "name": "Dummer",
+   "kind": "village",
+   "north": 2584.170095219685,
+   "east": -8785.656694337082
+  },
+  {
+   "name": "Stroud",
+   "kind": "village",
+   "north": -19988.344416162094,
+   "east": 4274.511440571733
+  },
+  {
+   "name": "Bramdean",
+   "kind": "village",
+   "north": -15508.656645418425,
+   "east": -6435.801317038127
+  },
+  {
+   "name": "Hawkley",
+   "kind": "village",
+   "north": -14495.30392042826,
+   "east": 6675.097461001956
+  },
+  {
+   "name": "Alton",
+   "kind": "town",
+   "north": -4258.365388750693,
+   "east": 4023.625097469667
+  },
+  {
+   "name": "Beech",
+   "kind": "village",
+   "north": -4927.803325121265,
+   "east": 1394.5037673927966
+  },
+  {
+   "name": "Lasham",
+   "kind": "village",
+   "north": -1111.8825494893897,
+   "east": -157.66294943204045
+  },
+  {
+   "name": "Bramley",
+   "kind": "village",
+   "north": 15955.738086978781,
+   "east": -1919.5335158484804
+  },
+  {
+   "name": "Farnham",
+   "kind": "town",
+   "north": 3110.6669533892887,
+   "east": 16379.230393242497
+  },
+  {
+   "name": "Farnborough",
+   "kind": "town",
+   "north": 11638.695135437838,
+   "east": 19480.76210707644
+  },
+  {
+   "name": "Ropley",
+   "kind": "village",
+   "north": -11575.013800947785,
+   "east": -3419.129654140646
+  },
+  {
+   "name": "Four Marks",
+   "kind": "village",
+   "north": -8473.88737226469,
+   "east": -858.4065287197013
+  },
+  {
+   "name": "East Oakley",
+   "kind": "village",
+   "north": 6864.307450607403,
+   "east": -9881.129142291653
+  },
+  {
+   "name": "Selborne",
+   "kind": "village",
+   "north": -9956.015669002674,
+   "east": 6292.962392601324
+  },
+  {
+   "name": "West Liss",
+   "kind": "village",
+   "north": -15234.994811452945,
+   "east": 9316.143523926416
+  },
+  {
+   "name": "Tadley",
+   "kind": "town",
+   "north": 18417.83839172766,
+   "east": -7428.878572124898
+  },
+  {
+   "name": "Langrish",
+   "kind": "village",
+   "north": -19821.83001351195,
+   "east": 2560.0261801931592
+  },
+  {
+   "name": "Sheet",
+   "kind": "village",
+   "north": -19470.543001256578,
+   "east": 7917.576565855571
+  },
+  {
+   "name": "Greatham",
+   "kind": "village",
+   "north": -12935.739476774726,
+   "east": 9802.82734594876
+  },
+  {
+   "name": "Empshott",
+   "kind": "village",
+   "north": -12417.637835567713,
+   "east": 7443.862894522521
+  },
+  {
+   "name": "East Tisted",
+   "kind": "village",
+   "north": -11342.727599187523,
+   "east": 2885.36021252841
+  },
+  {
+   "name": "Newton Valence",
+   "kind": "village",
+   "north": -10888.929984058359,
+   "east": 4544.926188956645
+  },
+  {
+   "name": "Upper Farringdon",
+   "kind": "village",
+   "north": -8358.088975657234,
+   "east": 3512.366986715236
+  },
+  {
+   "name": "Chawton",
+   "kind": "village",
+   "north": -5919.684309775902,
+   "east": 3135.8423273983517
+  },
+  {
+   "name": "Holybourne",
+   "kind": "village",
+   "north": -2654.3118549466453,
+   "east": 5758.2102582178795
+  },
+  {
+   "name": "South Warnborough",
+   "kind": "village",
+   "north": 3756.153502561206,
+   "east": 4597.273745016416
+  },
+  {
+   "name": "Upton Grey",
+   "kind": "village",
+   "north": 4637.606805564876,
+   "east": 2352.503769164579
+  },
+  {
+   "name": "Greywell",
+   "kind": "village",
+   "north": 7671.060001892136,
+   "east": 4225.627702294105
+  },
+  {
+   "name": "Odiham",
+   "kind": "village",
+   "north": 7372.446026387567,
+   "east": 6538.175601549123
+  },
+  {
+   "name": "Up Nately",
+   "kind": "village",
+   "north": 8411.918439646803,
+   "east": 2443.7826856490406
+  },
+  {
+   "name": "Hook",
+   "kind": "town",
+   "north": 10660.457768282333,
+   "east": 5166.81738517144
+  },
+  {
+   "name": "Newnham",
+   "kind": "village",
+   "north": 10441.314806850984,
+   "east": 3027.5231000942745
+  },
+  {
+   "name": "Rotherwick",
+   "kind": "village",
+   "north": 12686.229180878201,
+   "east": 3739.59203933362
+  },
+  {
+   "name": "Mattingley",
+   "kind": "village",
+   "north": 14258.63663855836,
+   "east": 6011.703176471901
+  },
+  {
+   "name": "Heckfield",
+   "kind": "village",
+   "north": 17016.74895752873,
+   "east": 4967.874369897026
+  },
+  {
+   "name": "Kings Worthy",
+   "kind": "village",
+   "north": -10921.398902637973,
+   "east": -18400.273981519476
+  },
+  {
+   "name": "Micheldever",
+   "kind": "village",
+   "north": -4237.571937467723,
+   "east": -16251.152768730382
+  },
+  {
+   "name": "Silchester",
+   "kind": "village",
+   "north": 18552.09514615812,
+   "east": -4686.336375676476
+  },
+  {
+   "name": "Fleet",
+   "kind": "town",
+   "north": 10429.361352236849,
+   "east": 13358.181914314453
+  },
+  {
+   "name": "Ramsdell",
+   "kind": "village",
+   "north": 13913.643259151142,
+   "east": -8404.936424748868
+  },
+  {
+   "name": "Baughurst",
+   "kind": "village",
+   "north": 17403.16244711076,
+   "east": -9032.333488263255
+  },
+  {
+   "name": "High Cross",
+   "kind": "village",
+   "north": -17010.94458235721,
+   "east": 3316.7414307251265
+  },
+  {
+   "name": "Bramshott",
+   "kind": "village",
+   "north": -10873.529486717465,
+   "east": 16429.166518814094
+  },
+  {
+   "name": "Cliddesden",
+   "kind": "village",
+   "north": 5748.977858392044,
+   "east": -4284.679871445265
+  },
+  {
+   "name": "Axmansford",
+   "kind": "village",
+   "north": 17641.07511215941,
+   "east": -10415.560681870304
+  },
+  {
+   "name": "Wolverton Common",
+   "kind": "village",
+   "north": 16172.445879516601,
+   "east": -11331.479130787742
+  },
+  {
+   "name": "Wolverton Townsend",
+   "kind": "village",
+   "north": 15450.735208129501,
+   "east": -11168.352130769776
+  },
+  {
+   "name": "Charter Alley",
+   "kind": "village",
+   "north": 14249.574252037586,
+   "east": -7958.7590593660425
+  },
+  {
+   "name": "Monk Sherborne",
+   "kind": "village",
+   "north": 13029.009781245408,
+   "east": -6819.183917396532
+  },
+  {
+   "name": "West Heath",
+   "kind": "village",
+   "north": 14985.073094327769,
+   "east": -8353.752767219516
+  },
+  {
+   "name": "Kingsclere",
+   "kind": "village",
+   "north": 15502.974584667643,
+   "east": -14448.113647708034
+  },
+  {
+   "name": "Runfold",
+   "kind": "village",
+   "north": 3743.9887775855586,
+   "east": 19421.779632448048
+  },
+  {
+   "name": "Pamber Heath",
+   "kind": "village",
+   "north": 18782.646707063,
+   "east": -6058.990910177858
+  },
+  {
+   "name": "West Tisted",
+   "kind": "village",
+   "north": -14403.634822902592,
+   "east": -2576.11864550296
+  },
+  {
+   "name": "Oakhanger",
+   "kind": "village",
+   "north": -7582.604437745334,
+   "east": 9222.62741326073
+  },
+  {
+   "name": "Little London",
+   "kind": "village",
+   "north": 16030.616750580848,
+   "east": -5140.695878033624
+  },
+  {
+   "name": "Hannington",
+   "kind": "village",
+   "north": 12060.20174386894,
+   "east": -13542.245148975404
+  },
+  {
+   "name": "Rowledge",
+   "kind": "village",
+   "north": -421.7734762550059,
+   "east": 14721.950397161438
+  },
+  {
+   "name": "Liphook",
+   "kind": "village",
+   "north": -12837.387564157842,
+   "east": 16252.881192895327
+  },
+  {
+   "name": "Farleigh Wallop",
+   "kind": "village",
+   "north": 3275.16872786735,
+   "east": -5347.8698164483185
+  },
+  {
+   "name": "Stoney Heath",
+   "kind": "village",
+   "north": 14925.561569587422,
+   "east": -9566.13080768461
+  },
+  {
+   "name": "Basingstoke",
+   "kind": "town",
+   "north": 8409.22752242137,
+   "east": -3672.7340836311187
+  },
+  {
+   "name": "Long Sutton",
+   "kind": "village",
+   "north": 3713.499128699645,
+   "east": 6237.492521921023
+  },
+  {
+   "name": "Ellisfield",
+   "kind": "village",
+   "north": 2551.6233401913,
+   "east": -3935.1479008009255
+  },
+  {
+   "name": "Bradley",
+   "kind": "village",
+   "north": -1787.936583995201,
+   "east": -4183.12798230308
+  },
+  {
+   "name": "Medstead",
+   "kind": "village",
+   "north": -6363.4632620142465,
+   "east": -2156.662160153842
+  },
+  {
+   "name": "Hale",
+   "kind": "village",
+   "north": 4706.391987187511,
+   "east": 17305.93755428623
+  },
+  {
+   "name": "Micheldever Station",
+   "kind": "village",
+   "north": -788.2608349833398,
+   "east": -15796.674785684501
+  },
+  {
+   "name": "Wrecclesham",
+   "kind": "village",
+   "north": 1195.2676249804128,
+   "east": 15160.628631893174
+  },
+  {
+   "name": "Weybourne",
+   "kind": "village",
+   "north": 5259.064131088578,
+   "east": 17879.28651538502
+  },
+  {
+   "name": "Ecchinswell",
+   "kind": "village",
+   "north": 16206.193539752558,
+   "east": -17450.56762795847
+  },
+  {
+   "name": "Badshot Lea",
+   "kind": "village",
+   "north": 4841.549420524051,
+   "east": 18914.654406894446
+  },
+  {
+   "name": "Crondall",
+   "kind": "village",
+   "north": 5020.017277788329,
+   "east": 11961.84518097256
+  },
+  {
+   "name": "Worting",
+   "kind": "village",
+   "north": 8410.917685306367,
+   "east": -7371.4921020681595
+  },
+  {
+   "name": "Bentworth",
+   "kind": "village",
+   "north": -3379.1582232646283,
+   "east": -1126.5562051142765
+  },
+  {
+   "name": "Wootton St Lawrence",
+   "kind": "village",
+   "north": 9843.453044761256,
+   "east": -8262.80838444439
+  },
+  {
+   "name": "Bishops Green",
+   "kind": "village",
+   "north": 19661.386853857228,
+   "east": -17342.65262888652
+  },
+  {
+   "name": "Yateley",
+   "kind": "town",
+   "north": 17016.437611733647,
+   "east": 14282.038569376497
+  },
+  {
+   "name": "Bordon",
+   "kind": "town",
+   "north": -8682.27778428948,
+   "east": 12138.304743198272
+  },
+  {
+   "name": "Liss Forest",
+   "kind": "village",
+   "north": -14753.02040191224,
+   "east": 10324.511757311024
+  },
+  {
+   "name": "Passfield",
+   "kind": "village",
+   "north": -9367.138456985742,
+   "east": 14577.522437605237
+  },
+  {
+   "name": "Standford",
+   "kind": "village",
+   "north": -9021.122084253291,
+   "east": 13691.788686503645
+  },
+  {
+   "name": "Headley",
+   "kind": "village",
+   "north": -7739.333686850969,
+   "east": 14539.831639686017
+  },
+  {
+   "name": "Headley Down",
+   "kind": "village",
+   "north": -7520.446473750731,
+   "east": 16117.973505150825
+  },
+  {
+   "name": "Lindford",
+   "kind": "village",
+   "north": -7664.043602020249,
+   "east": 13185.757664957682
+  },
+  {
+   "name": "Old Basing",
+   "kind": "village",
+   "north": 9349.525180606417,
+   "east": -873.2026759058177
+  },
+  {
+   "name": "Overton",
+   "kind": "village",
+   "north": 6362.062205939533,
+   "east": -16098.65418343631
+  },
+  {
+   "name": "Sherfield on Loddon",
+   "kind": "village",
+   "north": 14469.71796780779,
+   "east": 457.2518250525189
+  },
+  {
+   "name": "Liss",
+   "kind": "village",
+   "north": -16084.979950216648,
+   "east": 9867.204176640289
+  },
+  {
+   "name": "Bentley",
+   "kind": "village",
+   "north": 362.906882090412,
+   "east": 10793.298025883558
+  },
+  {
+   "name": "Oakley",
+   "kind": "village",
+   "north": 6800.337009308647,
+   "east": -10274.080800627684
+  },
+  {
+   "name": "Preston Candover",
+   "kind": "village",
+   "north": -1813.0777569102156,
+   "east": -6940.389661962562
+  },
+  {
+   "name": "Brown Candover",
+   "kind": "village",
+   "north": -4108.485747125817,
+   "east": -9806.172683042176
+  },
+  {
+   "name": "Deane",
+   "kind": "village",
+   "north": 6739.7135353022895,
+   "east": -12698.537195109933
+  },
+  {
+   "name": "Ashe",
+   "kind": "village",
+   "north": 6597.595299557835,
+   "east": -14096.03782698224
+  },
+  {
+   "name": "East Stratton",
+   "kind": "village",
+   "north": -3334.0686805103273,
+   "east": -13494.385920182649
+  },
+  {
+   "name": "Lower Wield",
+   "kind": "village",
+   "north": -3388.2762072493733,
+   "east": -4039.578173733904
+  },
+  {
+   "name": "Bighton",
+   "kind": "village",
+   "north": -9103.350732507128,
+   "east": -6420.2733773628315
+  },
+  {
+   "name": "Upper Wield",
+   "kind": "village",
+   "north": -4674.256653386199,
+   "east": -4793.658971304811
+  },
+  {
+   "name": "Bramley Green",
+   "kind": "village",
+   "north": 15290.114136591652,
+   "east": -1030.5032138194092
+  },
+  {
+   "name": "Mapledurwell",
+   "kind": "village",
+   "north": 7725.223050660005,
+   "east": 1211.4859505735221
+  },
+  {
+   "name": "North Warnborough",
+   "kind": "village",
+   "north": 7830.480168222412,
+   "east": 5556.110081061546
+  },
+  {
+   "name": "Sandhurst",
+   "kind": "town",
+   "north": 17376.408947760312,
+   "east": 18085.721691858245
+  },
+  {
+   "name": "Shalden",
+   "kind": "village",
+   "north": -1643.6500471819118,
+   "east": 2016.5343526531622
+  },
+  {
+   "name": "Bishop's Sutton",
+   "kind": "village",
+   "north": -11482.143798213752,
+   "east": -7106.896846335346
+  },
+  {
+   "name": "Ewshot",
+   "kind": "village",
+   "north": 6196.226092341945,
+   "east": 14069.400580375885
+  },
+  {
+   "name": "Dogmersfield",
+   "kind": "village",
+   "north": 9389.444159271368,
+   "east": 10724.892851775367
+  },
+  {
+   "name": "Winchfield",
+   "kind": "village",
+   "north": 10921.610172999488,
+   "east": 8527.180617704325
+  },
+  {
+   "name": "Phoenix Green",
+   "kind": "village",
+   "north": 12268.503199952163,
+   "east": 8459.799953080988
+  },
+  {
+   "name": "Crookham Village",
+   "kind": "village",
+   "north": 8830.033602815116,
+   "east": 11805.102199241202
+  },
+  {
+   "name": "Northington",
+   "kind": "village",
+   "north": -5996.575601550844,
+   "east": -11167.996688703595
+  },
+  {
+   "name": "North Waltham",
+   "kind": "village",
+   "north": 2804.6029178001727,
+   "east": -11340.37215189443
+  },
+  {
+   "name": "Eversley Cross",
+   "kind": "village",
+   "north": 17856.181697753796,
+   "east": 12046.663415195353
+  },
+  {
+   "name": "Frogmore",
+   "kind": "village",
+   "north": 16462.286575308306,
+   "east": 16850.177192021198
+  },
+  {
+   "name": "Blackwater",
+   "kind": "town",
+   "north": 15941.316104992733,
+   "east": 17748.40717105718
+  },
+  {
+   "name": "Hawley",
+   "kind": "village",
+   "north": 15347.268328887241,
+   "east": 17923.479812279576
+  },
+  {
+   "name": "Itchen Abbas",
+   "kind": "village",
+   "north": -10408.223196681203,
+   "east": -14283.320948595625
+  },
+  {
+   "name": "Binsted",
+   "kind": "village",
+   "north": -2612.73607187429,
+   "east": 9464.397712783217
+  },
+  {
+   "name": "Springvale",
+   "kind": "village",
+   "north": -9388.98826007154,
+   "east": -18881.62617254918
+  },
+  {
+   "name": "Kingsley",
+   "kind": "village",
+   "north": -5380.577946925196,
+   "east": 11190.961033959493
+  },
+  {
+   "name": "Stratfield Saye",
+   "kind": "village",
+   "north": 18286.706214736078,
+   "east": 1291.878582599812
+  },
+  {
+   "name": "Riseley",
+   "kind": "village",
+   "north": 19655.52688122332,
+   "east": 4841.330024886077
+  },
+  {
+   "name": "Sherborne St John",
+   "kind": "village",
+   "north": 12001.079401372444,
+   "east": -5042.029342134527
+  },
+  {
+   "name": "Hartley Wintney",
+   "kind": "village",
+   "north": 13226.947870165135,
+   "east": 9324.13748568924
+  },
+  {
+   "name": "Turgis Green",
+   "kind": "village",
+   "north": 15637.231339098107,
+   "east": 2199.4545971405346
+  },
+  {
+   "name": "Winchester",
+   "kind": "city",
+   "north": -14002.043225833182,
+   "east": -19491.411430157146
+  },
+  {
+   "name": "Aldershot",
+   "kind": "town",
+   "north": 6918.203631552157,
+   "east": 18851.33693294917
+  },
+  {
+   "name": "New Alresford",
+   "kind": "town",
+   "north": -10739.661914530066,
+   "east": -8916.696336067316
+  },
+  {
+   "name": "East Worldham",
+   "kind": "village",
+   "north": -5563.326808865542,
+   "east": 7176.1732019782885
+  },
+  {
+   "name": "Lower Farringdon",
+   "kind": "village",
+   "north": -8527.105264156886,
+   "east": 2766.9910350395103
+  },
+  {
+   "name": "Grayshott",
+   "kind": "village",
+   "north": -8572.650706110227,
+   "east": 19715.61174048692
+  },
+  {
+   "name": "Upper Froyle",
+   "kind": "village",
+   "north": -854.1104705422277,
+   "east": 7800.454920324427
+  },
+  {
+   "name": "Hound Green",
+   "kind": "village",
+   "north": 15484.660780248592,
+   "east": 5528.009249476802
+  },
+  {
+   "name": "Dockenfield",
+   "kind": "village",
+   "north": -3109.5772431072887,
+   "east": 14610.773694423391
+  },
+  {
+   "name": "Frensham",
+   "kind": "village",
+   "north": -2413.1300590543656,
+   "east": 16613.543378827566
+  },
+  {
+   "name": "Lower Froyle",
+   "kind": "village",
+   "north": 442.24446225088866,
+   "east": 8447.582503237723
+  },
+  {
+   "name": "Heath End",
+   "kind": "village",
+   "north": 18610.083300403807,
+   "east": -9305.598742629854
+  },
+  {
+   "name": "West Meon",
+   "kind": "village",
+   "north": -19478.415602062574,
+   "east": -3740.7001822458055
+  },
+  {
+   "name": "Beacon Hill",
+   "kind": "village",
+   "north": -6845.648941915675,
+   "east": 19741.11993582426
+  },
+  {
+   "name": "Old Alresford",
+   "kind": "village",
+   "north": -9449.567256107508,
+   "east": -9006.065622627617
+  },
+  {
+   "name": "Weston Patrick",
+   "kind": "village",
+   "north": 3338.838942863818,
+   "east": 1422.3188514341484
+  },
+  {
+   "name": "Tichborne",
+   "kind": "village",
+   "north": -13050.303609697015,
+   "east": -10702.653329556373
+  },
+  {
+   "name": "Frith End",
+   "kind": "village",
+   "north": -3923.424030711889,
+   "east": 13058.126085391372
+  },
+  {
+   "name": "Churt",
+   "kind": "village",
+   "north": -5504.993950347969,
+   "east": 17930.909248407886
+  },
+  {
+   "name": "Holt Pound",
+   "kind": "village",
+   "north": -82.98477375437491,
+   "east": 13849.7652612882
+  },
+  {
+   "name": "Ropley Dean",
+   "kind": "village",
+   "north": -11535.71751387142,
+   "east": -4833.998161089652
+  },
+  {
+   "name": "Minley",
+   "kind": "village",
+   "north": 14261.650021070878,
+   "east": 14941.766922008348
+  },
+  {
+   "name": "Quidhampton",
+   "kind": "village",
+   "north": 7176.520565639924,
+   "east": -15736.619015405311
+  },
+  {
+   "name": "Eversley",
+   "kind": "village",
+   "north": 18473.057792299143,
+   "east": 10133.973901483834
+  },
+  {
+   "name": "Eversley Centre",
+   "kind": "village",
+   "north": 17955.23413840804,
+   "east": 11481.399018738995
+  },
+  {
+   "name": "Herriard",
+   "kind": "village",
+   "north": 2490.732998360248,
+   "east": -1267.0673324902516
+  },
+  {
+   "name": "Hollywater",
+   "kind": "village",
+   "north": -9536.588405699635,
+   "east": 12710.650103169039
+  },
+  {
+   "name": "Gundleton",
+   "kind": "village",
+   "north": -10158.290360061652,
+   "east": -6030.931895306789
+  },
+  {
+   "name": "Blackmoor",
+   "kind": "village",
+   "north": -10343.29647901319,
+   "east": 10185.694206838585
+  },
+  {
+   "name": "Whitehill",
+   "kind": "village",
+   "north": -9688.224927164692,
+   "east": 11285.41802068271
+  },
+  {
+   "name": "Finchampstead",
+   "kind": "village",
+   "north": 19385.812467154028,
+   "east": 12194.757306649759
+  },
+  {
+   "name": "Tilford",
+   "kind": "village",
+   "north": -112.70717764695598,
+   "east": 19998.174244192316
+  },
+  {
+   "name": "Upper Hale",
+   "kind": "village",
+   "north": 5152.228045568327,
+   "east": 16510.841530059526
+  }
+ ],
+ "imagery": true,
+ "attribution": [
+  "Terrain: Terrarium elevation tiles (Mapzen / AWS Open Data; SRTM, GMTED and others)",
+  "Imagery: Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (contains modified Copernicus Sentinel data), CC BY-NC-SA 4.0",
+  "Runways, airfields and places: (c) OpenStreetMap contributors, ODbL"
+ ]
+}
