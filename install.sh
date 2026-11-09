@@ -35,7 +35,8 @@ AUTH=()
 release_json() {  # release_json <repo> <tag|latest>
   local api="https://api.github.com/repos/$1/releases/latest"
   [ "$2" = latest ] || api="https://api.github.com/repos/$1/releases/tags/$2"
-  curl -fsSL "${AUTH[@]}" -H 'User-Agent: aircraft-foundry-installer' "$api" || die "couldn't read $1 ($2) from GitHub"
+  # ${AUTH[@]+...}: macOS's bash 3.2 treats an empty array as unbound under `set -u`
+  curl -fsSL ${AUTH[@]+"${AUTH[@]}"} -H 'User-Agent: aircraft-foundry-installer' "$api" || die "couldn't read $1 ($2) from GitHub"
 }
 jget() { python3 -c "import json,sys,re; d=json.load(sys.stdin); print($1)"; }  # python3 ships with macOS/Linux
 
