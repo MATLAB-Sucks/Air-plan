@@ -27,9 +27,18 @@ def hard_exit(code: int = 0) -> None:
             stream.flush()
         except Exception:
             pass
+    try:
+        import faulthandler
+        faulthandler.disable()  # it hooks every Windows exception, even harmless ones during termination
+    except Exception:
+        pass
     if sys.platform.startswith("win"):
         import ctypes
-        k32 = ctypes.windll.kernel32
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE  # a 64-bit pseudo-handle: never truncate it to int
+        k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k32.TerminateProcess.restype = wintypes.BOOL
         k32.TerminateProcess(k32.GetCurrentProcess(), int(code) & 0xFFFFFFFF)
     os._exit(code)
 
