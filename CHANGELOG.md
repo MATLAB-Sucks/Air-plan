@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.3
+- **One-command install** for Windows (`irm …/install.ps1 | iex`) and macOS / Linux
+  (`curl -fsSL …/install.sh | bash`). It downloads the latest release, verifies its
+  checksum and adds shortcuts. Run it again to update; saved planes are kept.
+- **Small screens** (1366×768, or 1920×1080 at 150 % scaling): the window opens sized to
+  the screen, every side-panel page scrolls, the side panels can be narrower, and the 3-D
+  view keeps a fair share of the width.
+- **Collapsible side panels and full screen.** Hide either panel (its ×, the ◧ / ◨ toolbar
+  buttons, the View menu, or Ctrl+[ / Ctrl+]). **F11** shows only the current view (flight
+  simulator, wind tunnel, studio or 3-D model) filling the screen, and **F11 / Esc** brings
+  everything back. Panel choices are remembered.
+- Simulator HUD: no "STALL" warning while parked, and no huge endurance figure at idle.
+- Every release is now installed on clean Windows and macOS machines with those
+  commands, and self-tested, before it counts as good.
+
 ## 0.9.2
 - First published release: the build workflow is fixed (Windows PyInstaller exit-crash
   workaround, numba TBB conflict), so version tags now produce downloadable releases.

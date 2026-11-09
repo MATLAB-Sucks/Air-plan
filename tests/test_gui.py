@@ -425,3 +425,42 @@ def test_without_opengl_the_app_explains_instead_of_crashing(app, tmp_path, monk
     assert warned and "3-D view unavailable" in warned[-1]
     w.dirty = False
     w.close()
+
+
+def test_collapsible_panels_and_full_screen(app, tmp_path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtWidgets import QApplication
+    from aircraft_foundry.app.main_window import MainWindow
+    from aircraft_foundry.core.synthesis import baseline, configurations_for
+    from aircraft_foundry.portable import DataLocation
+    w = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    w.show()
+    app.processEvents()
+    w.add_studio_design(baseline(w.project.mission, configurations_for(w.project.mission)[0]))
+    assert w.gallery_dock.isVisible() and w.right_dock.isVisible()
+    w.left_toggle.trigger()  # collapse the aircraft list
+    app.processEvents()
+    assert not w.gallery_dock.isVisible() and w.right_dock.isVisible()
+    w.left_toggle.trigger()
+    assert w.gallery_dock.isVisible()
+    w.right_toggle.trigger()
+    assert not w.right_dock.isVisible()  # collapsed before going full screen
+    w.show_page("simulator")
+    w.fullscreen_action.trigger()  # F11
+    app.processEvents()
+    assert w.isFullScreen() and not w.gallery_dock.isVisible() and not w.panels_toolbar.isVisible()
+    assert not w.statusBar().isVisible() and not w.menuBar().isVisible()
+    assert w.centre.currentWidget() is w.sim_window.embedded_centre  # only the flight view
+    w.exit_fullscreen_action.trigger()  # Esc
+    app.processEvents()
+    assert not w.isFullScreen() and w.gallery_dock.isVisible() and not w.right_dock.isVisible()  # as before
+    assert w.panels_toolbar.isVisible() and w.statusBar().isVisible()
+    w.right_toggle.trigger()
+    w.gallery_dock.hide()
+    w.dirty = False
+    w.close()
+    w2 = MainWindow(DataLocation(tmp_path / "d", False, "test"))  # panels are remembered
+    assert w2.gallery_dock.isHidden() and not w2.right_dock.isHidden()
+    w2.dirty = False
+    w2.close()

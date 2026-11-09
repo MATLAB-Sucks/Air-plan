@@ -44,7 +44,7 @@ class MainWindow(QMainWindow):
         configure_settings(str(self.location.settings_path))
         self.library = DesignLibrary(self.location.library_path, host_description())
         self.setWindowTitle("Aircraft Foundry")
-        self.resize(1500, 950)
+        self.small_screen = self._fit_to_screen()
         self.project = Project()
         self.design: AircraftDesign | None = None
         self.candidate: Candidate | None = None
@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        self.nav.setFixedWidth(150)
+        self.nav.setFixedWidth(124 if self.small_screen else 150)
         self.page_keys: list[str] = []
         self.tool_windows: dict[str, object] = {}  # studio / wind tunnel / simulator behind their pages
         for key, title, widget in (("mission", "🎯  Mission", self.mission_panel),
@@ -105,10 +105,11 @@ class MainWindow(QMainWindow):
         rl.addWidget(self.nav)
         rl.addWidget(self.pages, 1)
         self.right_dock = self._dock("Workspace", right, Qt.RightDockWidgetArea)
-        self.right_dock.setMinimumWidth(560)
+        self.right_dock.setMinimumWidth(380 if self.small_screen else 560)
         for d in (self.gallery_dock, self.right_dock):
-            d.setFeatures(QDockWidget.NoDockWidgetFeatures)
-        self.gallery_dock.setMinimumWidth(300)
+            d.setFeatures(QDockWidget.DockWidgetClosable)  # the × collapses the panel
+        self._build_panel_toolbar()
+        self.gallery_dock.setMinimumWidth(210 if self.small_screen else 300)
         self.nav.setCurrentRow(0)
 
         self.progress = QProgressBar()
@@ -145,6 +146,7 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_started", False):
             self._started = True
             self.viewport.start()
+            self._balance_panels()
             from .update_dialog import check_in_background
             check_in_background(self._update_found)
 
@@ -217,13 +219,138 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ ui scaffolding
     # ------------------------------------------------------------ pages
+    def _fit_to_screen(self) -> bool:
+        """Open at a size that fits this screen's free area; True on small (laptop) screens.
+
+        A 1366x768 screen, or 1920x1080 at 150 % Windows scaling (which the app sees as 1280x720),
+        can't show fixed 1500x950 windows or tall side panels: everything is sized from the screen.
+        """
+        from PySide6.QtGui import QGuiApplication
+        scr = self.screen() or QGuiApplication.primaryScreen()
+        ag = scr.availableGeometry() if scr is not None else None
+        if ag is None:
+            self.resize(1500, 950)
+            return False
+        small = ag.width() < 1600 or ag.height() < 940
+        self.resize(min(1500, int(ag.width() * 0.96)), min(950, int(ag.height() * 0.94)))
+        self.move(ag.x() + (ag.width() - self.width()) // 2, ag.y() + max((ag.height() - self.height()) // 2, 0))
+        return small
+
+    # ------------------------------------------------------------ collapsible panels and full screen
+    def _build_panel_toolbar(self) -> None:
+        from PySide6.QtGui import QAction, QKeySequence
+        from PySide6.QtWidgets import QToolBar
+        tb = QToolBar("Panels")
+        tb.setObjectName("panelsToolbar")
+        tb.setMovable(False)
+        tb.setFloatable(False)
+        self.addToolBar(Qt.TopToolBarArea, tb)
+        self.panels_toolbar = tb
+        self.left_toggle = self.gallery_dock.toggleViewAction()
+        self.left_toggle.setText("◧ Aircraft")
+        self.left_toggle.setToolTip("Show / hide the generated aircraft (Ctrl+[)")
+        self.left_toggle.setShortcut(QKeySequence("Ctrl+["))
+        self.right_toggle = self.right_dock.toggleViewAction()
+        self.right_toggle.setText("◨ Workspace")
+        self.right_toggle.setToolTip("Show / hide the workspace panel (Ctrl+])")
+        self.right_toggle.setShortcut(QKeySequence("Ctrl+]"))
+        self.fullscreen_action = QAction("⛶ Full screen", self)
+        self.fullscreen_action.setCheckable(True)
+        self.fullscreen_action.setShortcut(QKeySequence(Qt.Key_F11))
+        self.fullscreen_action.setToolTip("Only the current view, filling the screen (F11 or Esc to leave)")
+        self.fullscreen_action.toggled.connect(self.set_full_screen)
+        self.exit_fullscreen_action = QAction("Leave full screen", self)
+        self.exit_fullscreen_action.setShortcut(QKeySequence(Qt.Key_Escape))
+        self.exit_fullscreen_action.setEnabled(False)
+        self.exit_fullscreen_action.triggered.connect(lambda: self.fullscreen_action.setChecked(False))
+        for a in (self.left_toggle, self.right_toggle, self.fullscreen_action, self.exit_fullscreen_action):
+            self.addAction(a)  # window-wide shortcuts that keep working with menus and toolbars hidden
+        tb.addAction(self.left_toggle)
+        tb.addAction(self.right_toggle)
+        tb.addSeparator()
+        tb.addAction(self.fullscreen_action)
+        s_ = app_settings()
+        self.gallery_dock.setVisible(str(s_.value("panels/left", "true")).lower() == "true")
+        self.right_dock.setVisible(str(s_.value("panels/right", "true")).lower() == "true")
+
+    def set_full_screen(self, on: bool) -> None:
+        """Hide everything but the current view (flight simulator, wind tunnel, studio, 3-D model)."""
+        if on == self.isFullScreen() and getattr(self, "_pre_fullscreen", None) is not None:
+            return
+        if on:
+            self._pre_fullscreen = {"left": self.gallery_dock.isVisible(), "right": self.right_dock.isVisible(),
+                                    "maximized": self.isMaximized()}
+            for w in (self.gallery_dock, self.right_dock, self.panels_toolbar, self.statusBar(), self.menuBar()):
+                w.hide()
+            self.exit_fullscreen_action.setEnabled(True)
+            self.showFullScreen()
+            self._flash_hint("Full screen — press F11 or Esc to bring the panels back")
+        else:
+            pre = getattr(self, "_pre_fullscreen", None) or {"left": True, "right": True, "maximized": False}
+            self.exit_fullscreen_action.setEnabled(False)
+            self.showMaximized() if pre["maximized"] else self.showNormal()
+            for w in (self.panels_toolbar, self.statusBar(), self.menuBar()):
+                w.show()
+            self.gallery_dock.setVisible(pre["left"])
+            self.right_dock.setVisible(pre["right"])
+            self._pre_fullscreen = None
+        self.fullscreen_action.blockSignals(True)
+        self.fullscreen_action.setChecked(on)
+        self.fullscreen_action.blockSignals(False)
+        tool = self.tool_windows.get("simulator")
+        if tool is not None and self.centre.currentWidget() is tool.embedded_centre:
+            tool.vtk_widget.setFocus()  # keep flying with the keyboard
+
+    def _flash_hint(self, text: str, ms: int = 3000) -> None:
+        from PySide6.QtCore import QTimer
+        hint = QLabel(text, self.centre)
+        hint.setStyleSheet("background: rgba(20,24,30,200); color: white; padding: 8px 14px; border-radius: 8px;"
+                           "font-size: 14px;")
+        hint.adjustSize()
+        hint.move(max((self.centre.width() - hint.width()) // 2, 0), 16)
+        hint.show()
+        hint.raise_()
+        QTimer.singleShot(ms, hint.deleteLater)
+
+    def _balance_panels(self) -> None:
+        """Opening split: on small screens the 3-D view gets about half the width (panels stay draggable)."""
+        w = self.width()
+        left, right = (0.2, 0.34) if self.small_screen else (0.2, 0.38)
+        self.resizeDocks([self.gallery_dock, self.right_dock],
+                         [max(int(w * left), self.gallery_dock.minimumWidth()),
+                          max(int(w * right), self.right_dock.minimumWidth())], Qt.Horizontal)
+
+    def _clamp_to_screen(self) -> None:
+        """A size remembered from a bigger monitor must still fit this one."""
+        from PySide6.QtGui import QGuiApplication
+        scr = self.screen() or QGuiApplication.primaryScreen()
+        if scr is None:
+            return
+        ag = scr.availableGeometry()
+        if self.frameGeometry().width() > ag.width() or self.frameGeometry().height() > ag.height():
+            self.showMaximized()
+
+    @staticmethod
+    def _scrollable(widget) -> QWidget:
+        """Every side-panel page scrolls, so nothing is cut off on short screens."""
+        from PySide6.QtWidgets import QAbstractScrollArea, QFrame, QScrollArea
+        if isinstance(widget, QAbstractScrollArea):
+            return widget
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setWidget(widget)
+        return area
+
     def _page(self, title: str, widget) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setContentsMargins(8, 4, 8, 4)
         head = QLabel(title)
         head.setObjectName("pageTitle")
+        head.setWordWrap(True)
         lay.addWidget(head)
+        widget = self._scrollable(widget)
         lay.addWidget(widget, 1)
         page.body = widget
         page.head, page.title = head, title
@@ -331,6 +458,7 @@ class MainWindow(QMainWindow):
         self.centre.addWidget(centre)
         idx = self.page_keys.index(key)
         page = self.pages.widget(idx)
+        side = self._scrollable(side)
         page.layout().removeWidget(page.body)
         page.body.hide()  # hide and detach now: deleteLater only runs on a later event-loop pass
         page.body.setParent(None)
@@ -381,6 +509,10 @@ class MainWindow(QMainWindow):
         act(sm, "🛠 Design studio (drag and drop)…", self.open_studio, "F6")
         act(sm, "🌬 Wind tunnel…", self.open_wind_tunnel, "F7")
         vm = self.menuBar().addMenu("&View")
+        vm.addAction(self.left_toggle)
+        vm.addAction(self.right_toggle)
+        vm.addAction(self.fullscreen_action)
+        vm.addSeparator()
         for name in ("iso", "front", "side", "top", "rear"):
             act(vm, f"{name.title()} view", lambda _=False, n=name: self.viewport.view(n))
         hm = self.menuBar().addMenu("&Help")
@@ -851,6 +983,7 @@ class MainWindow(QMainWindow):
         geo = s.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
+            self._clamp_to_screen()
         state = s.value("window_state")
         if state is not None:
             pass  # dock layout is fixed (two panels); older saved layouts are ignored
@@ -869,5 +1002,8 @@ class MainWindow(QMainWindow):
         s = app_settings()
         s.setValue("geometry", self.saveGeometry())
         s.setValue("window_state", self.saveState())
+        pre = getattr(self, "_pre_fullscreen", None)  # remember the panels, not the temporary full-screen state
+        s.setValue("panels/left", "true" if (pre["left"] if pre else self.gallery_dock.isVisible()) else "false")
+        s.setValue("panels/right", "true" if (pre["right"] if pre else self.right_dock.isVisible()) else "false")
         self.viewport.close()
         super().closeEvent(event)

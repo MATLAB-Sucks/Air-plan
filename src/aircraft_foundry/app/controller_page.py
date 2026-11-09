@@ -147,7 +147,7 @@ class ControllerPage(QWidget):
                 t.setItem(r, 0, QTableWidgetItem(a))
                 t.setItem(r, 1, QTableWidgetItem(b))
             t.resizeColumnToContents(0)
-            t.setMinimumHeight(28 * len(rows) + 30)
+            t.setMinimumHeight(min(28 * len(rows) + 30, 220))
             gl.addWidget(t)
             lay.addWidget(g)
         note = QLabel("Pair the controller in your computer's Bluetooth settings first; it is picked up "

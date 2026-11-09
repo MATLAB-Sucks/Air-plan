@@ -885,8 +885,10 @@ class SimulatorWindow(QMainWindow):
             lines.append(f"{rw.code} {rw.heading_deg:03.0f}  {ap['dist_m'] / 1852:4.1f} nm  G/S "
                          f"{'HIGH' if gs > 15 else 'LOW ' if gs < -15 else 'ON  '}{gs:+5.0f} m  LOC {r:+5.0f} m "
                          f"{'(fly left)' if r > 10 else '(fly right)' if r < -10 else ''}")
+        endurance = f"{t['fuel_kg'] / t['fuel_flow_kgh'] * 60:5.0f}" if t["fuel_flow_kgh"] > 5 else "    —"
         lines.append(f"FUEL {t['fuel_kg']:7.0f} kg  FLOW {t['fuel_flow_kgh']:6.0f} kg/h  "
-                     f"ENDUR {t['fuel_kg'] / max(t['fuel_flow_kgh'], 1) * 60:5.0f} min  DIST {t['distance_km']:6.1f} km")
+                     f"ENDUR {endurance} min  "
+                     f"DIST {t['distance_km']:6.1f} km")
         if not t["on_ground"]:
             self.g_max, self.g_min = max(self.g_max, t["load_factor"]), min(self.g_min, t["load_factor"])
         lines.append(f"G  now {t['load_factor']:+5.1f}  max {self.g_max:+5.1f}  min {self.g_min:+5.1f}  "
@@ -906,7 +908,7 @@ class SimulatorWindow(QMainWindow):
         elif self.paused:
             warn.append("PAUSED")
         else:
-            if t["stalled"]:
+            if t["stalled"] and not t["on_ground"] and t["airspeed"] > 15:  # no "stall" while parked
                 warn.append("STALL")
             if not t["on_ground"] and self.sim.height_above_ground() < 150 and t["vs"] < -8:
                 warn.append("SINK RATE — PULL UP")

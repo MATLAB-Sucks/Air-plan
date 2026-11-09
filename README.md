@@ -15,6 +15,13 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.9.3:**
+
+* **One-command install** (see above).
+* **Small screens:** the window fits the screen, and every panel scrolls.
+* **Collapsible panels and full screen:** F11 shows only the current view, such as
+  the flight simulator, filling the screen.
+
 **New in 0.9:**
 
 * **Check for updates:** one click installs new releases from GitHub, verified
@@ -107,6 +114,34 @@ It also fixes oversized tails on aircraft with a small cabin and a big wing.
   separate solid that deflects about its hinge line.
 * **Structural sizing and stress analysis,** with a Stress view in the 3D
   viewport.
+
+## Install (one command)
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.ps1 | iex
+```
+
+**macOS** (Terminal), and **Linux** (from source, needs Python 3.11 or `uv`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.sh | bash
+```
+
+What the installer does:
+
+* It downloads the latest release from GitHub and checks its SHA-256
+  against the release's checksum file.
+* On Windows it installs to `%LOCALAPPDATA%\Programs\AircraftFoundry`,
+  with Start-menu and desktop shortcuts.
+* On macOS it installs `Aircraft Foundry.app` to Applications.
+
+**Updating:** run the command again, or use **⟳ Check for updates** in the
+app. Saved planes, projects and settings are always kept.
+
+**For a USB stick:** download `AircraftFoundry-Portable.zip` from the
+[releases page](https://github.com/MATLAB-Sucks/Air-plan/releases) instead.
 
 ## Requirements
 

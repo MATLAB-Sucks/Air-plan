@@ -325,6 +325,10 @@ class DesignStudioWindow(QMainWindow):
         centre.addWidget(editors)
         centre.addWidget(self.viewport)
         centre.setSizes([820, 520])
+        centre.setStretchFactor(0, 3)  # editors / 3-D preview share space on small screens too
+        centre.setStretchFactor(1, 2)
+        centre.setChildrenCollapsible(False)
+        self.viewport.setMinimumWidth(200)
         self.setCentralWidget(centre)
         self._build_side_panel()
 
