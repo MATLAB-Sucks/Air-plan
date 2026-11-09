@@ -838,6 +838,8 @@ class MainWindow(QMainWindow):
             return
         self.sim_window.timer.stop()
         self.sim_window.pads = self.controllers  # fly with a game controller too
+        self.sim_window.world_requested.connect(
+            lambda _name: self._open_sim(design, mission, evaluation, start, pinned_name))  # rebuild in the new world
         self._tag_tool(self.sim_window, pinned_name)
         self.embed_tool("simulator", self.sim_window)
 

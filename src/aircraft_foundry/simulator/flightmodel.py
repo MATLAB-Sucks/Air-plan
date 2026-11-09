@@ -525,7 +525,8 @@ class FlightSimulator:
         if not flown:
             self.airborne_since = None  # bounced or never really left the ground
         if self.touchdown is not None and self.landing is None and np.hypot(v_ned[0], v_ned[1]) < 1.0:
-            self.landing = rate_landing(self.touchdown, self.state[0:3])
+            self.landing = rate_landing(self.touchdown, self.state[0:3],
+                                        runways=getattr(self.terrain, "runways", None))
 
     # ------------------------------------------------------------ set-ups
     def height_above_ground(self) -> float:
@@ -535,7 +536,7 @@ class FlightSimulator:
     def place_on_runway(self, runway=None, along: float = 100.0) -> None:
         """Line up on a runway (default: home), on the centreline ``along`` metres from the threshold."""
         from .terrain import HOME
-        rw = (runway or HOME).departure()  # one-way mountain strips: take off away from the terrain
+        rw = (runway or getattr(self.terrain, "home", HOME)).departure()  # one-way mountain strips: take off away from the terrain
         md = self.m
         mains = [p for p, main in md.gear_points if main]
         nose = [p for p, main in md.gear_points if not main][0]
@@ -616,9 +617,10 @@ class FlightSimulator:
         return sb.perceived_level_db(r.overpressure_psf, self.m.polar.shaping_credit(r)), r.mach_cutoff
 
 
-def rate_landing(td: dict, stop_pos: np.ndarray, runway=None) -> dict:
+def rate_landing(td: dict, stop_pos: np.ndarray, runway=None, runways=None) -> dict:
     """Score a landing from the touchdown record and where the aircraft stopped (any runway)."""
     from .terrain import RUNWAYS
+    RUNWAYS = runways or RUNWAYS
     if runway is None:
         def offset(rw):
             a, r = rw.local(td["north"], td["east"])

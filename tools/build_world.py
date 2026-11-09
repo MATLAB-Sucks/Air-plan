@@ -203,7 +203,14 @@ def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 5
         la, lo = latlon(np.array(nn), np.array(ee), lat0, lon0)
         return float(sample(dem, 12, dx0, dy0, la, lo))
     print("OpenStreetMap...")
-    runways, aerodromes, places = runways_from_osm(osm(lat0, lon0, half), lat0, lon0, dem_at)
+    data = osm(lat0, lon0, half)
+    from collections import Counter
+    kinds = Counter(f"{el['type']}:{el.get('tags', {}).get('aeroway') or el.get('tags', {}).get('place', '?')}"
+                    f"{':geom' if el.get('geometry') else ''}" for el in data.get("elements", []))
+    runways, aerodromes, places = runways_from_osm(data, lat0, lon0, dem_at)
+    # readable through the GitHub API (annotations), unlike the raw log
+    print(f"::notice title=OpenStreetMap::{dict(kinds)} -> {len(runways)} runways, {len(aerodromes)} airfields, "
+          f"{len(places)} places; remark: {str(data.get('remark', ''))[:200]}")
     for rw in runways:
         print(f"  runway {rw['airfield']} {rw['ref']}: {rw['length']:.0f} m x {rw['width']:.0f} m, "
               f"heading {rw['heading_deg']:.0f}, {rw['surface']}, elevation {rw['elevation']:.0f} m")

@@ -18,7 +18,7 @@ import vtkmodules.qt
 vtkmodules.qt.PyQtImpl = "PySide6"
 import vtkmodules.vtkInteractionStyle  # noqa: E402,F401
 import vtkmodules.vtkRenderingOpenGL2  # noqa: E402,F401
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer  # noqa: E402
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF  # noqa: E402
 from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout,  # noqa: E402
@@ -104,7 +104,9 @@ class SimulatorWindow(QMainWindow):
         self.params = design.params
         self.arr = Arrangement(self.params)
         self.model = build_aero_model(self.params, mission, evaluation)
-        self.terrain = Terrain()
+        from .world import load_world
+        from ..app.settings import settings as _settings
+        self.terrain = load_world(_settings().value("sim/world") or None)
         self.sim = FlightSimulator(self.model, self.terrain)
         self.trail: list[tuple[float, float]] = []
         self.coach = CircuitCoach(self)
@@ -116,7 +118,7 @@ class SimulatorWindow(QMainWindow):
         self.log: list[dict] = []
         self._log_t = -1.0
         self.wp_add_mode = False
-        self.start_runway = HOME
+        self.start_runway = self.terrain.home
         self.g_max, self.g_min = 1.0, 1.0
         self.paused = False
         self.camera_mode = "chase"
@@ -183,8 +185,8 @@ class SimulatorWindow(QMainWindow):
         fl.addWidget(self.coach_view)
         sf = QFormLayout()
         self.airport_box = QComboBox()
-        self.airport_box.addItems([f"{r.code} — {r.name} (rwy {r.heading_deg:03.0f}, {r.elevation:.0f} m)" for r in RUNWAYS])
-        self.airport_box.currentIndexChanged.connect(lambda i: setattr(self, "start_runway", RUNWAYS[i]))
+        self.airport_box.addItems([f"{r.code} — {r.name} (rwy {r.heading_deg:03.0f}, {r.elevation:.0f} m)" for r in self.terrain.runways])
+        self.airport_box.currentIndexChanged.connect(lambda i: setattr(self, "start_runway", self.terrain.runways[i]))
         self.fuel_box = QSpinBox()
         self.fuel_box.setRange(1, 100)
         self.fuel_box.setValue(60)
@@ -201,6 +203,14 @@ class SimulatorWindow(QMainWindow):
         for wdg in (self.wind_spd, self.wind_dir):
             wdg.valueChanged.connect(self._apply_weather)
         self.turb_box.currentIndexChanged.connect(self._apply_weather)
+        from .world import available_worlds
+        self.world_box = QComboBox()
+        self._worlds = available_worlds()
+        self.world_box.addItems([t for _, t in self._worlds])
+        self.world_box.setCurrentIndex(next((i for i, (n_, _) in enumerate(self._worlds)
+                                             if n_ == getattr(self.terrain, "name", "")), 0))
+        self.world_box.currentIndexChanged.connect(self._world_chosen)
+        sf.addRow("World", self.world_box)
         sf.addRow("Start at", self.airport_box)
         sf.addRow("Fuel", self.fuel_box)
         wrow = QHBoxLayout()
@@ -209,6 +219,11 @@ class SimulatorWindow(QMainWindow):
         sf.addRow("Wind", wrow)
         sf.addRow("Turbulence", self.turb_box)
         fl.addLayout(sf)
+        if getattr(self.terrain, "attribution", None):
+            attr = QLabel("Map data: " + " · ".join(self.terrain.attribution))
+            attr.setWordWrap(True)
+            attr.setObjectName("hint")
+            fl.addWidget(attr)
         b_log = QPushButton("Export flight log (CSV)…")
         b_log.clicked.connect(self.export_log)
         fl.addWidget(b_log)
@@ -224,7 +239,7 @@ class SimulatorWindow(QMainWindow):
                             ("flight_plan", "Fly flight plan → land at destination"), ("land", "Land now at destination")]
         self.ap_program.addItems([label for _, label in self.ap_programs])
         self.ap_dest = QComboBox()
-        self.ap_dest.addItems([f"{r.code} — {r.name}" for r in RUNWAYS])
+        self.ap_dest.addItems([f"{r.code} — {r.name}" for r in self.terrain.runways])
         self.ap_height = QSpinBox()
         self.ap_height.setRange(150, 3000)
         self.ap_height.setValue(450)
@@ -309,33 +324,51 @@ class SimulatorWindow(QMainWindow):
         from vtkmodules.vtkRenderingCore import vtkLight
         T = self.terrain
         north, east, h = T.grid
+        step = max(1, int(np.ceil(len(north) / 400)))  # render at most ~400 x 400 (physics uses the full grid)
+        north, east, h = north[::step], east[::step], h[::step, ::step]
         n = len(north)
         NN, EE = np.meshgrid(north, east, indexing="ij")
         pts = np.column_stack([EE.ravel(), NN.ravel(), h.ravel()])  # ENU
-        quads = []
         idx = np.arange(n * n).reshape(n, n)
         a_, b_, c_, d_ = idx[:-1, :-1].ravel(), idx[1:, :-1].ravel(), idx[1:, 1:].ravel(), idx[:-1, 1:].ravel()
         tris = np.concatenate([np.column_stack([a_, d_, c_]), np.column_stack([a_, c_, b_])])
         poly = mesh_to_polydata(Mesh(pts, tris))
-        colours = vtkUnsignedCharArray()
-        colours.SetNumberOfComponents(3)
-        colours.SetName("Colors")
-        col = T.colours().reshape(-1, 3)
-        for rgb in col:
-            colours.InsertNextTuple3(*map(int, rgb))
-        poly.GetPointData().SetScalars(colours)
-        ground = self._actor(poly, (1, 1, 1))
-        ground.GetMapper().SetScalarModeToUsePointData()
-        ground.GetMapper().ScalarVisibilityOn()
+        texture_path = getattr(T, "texture_path", None)
+        if texture_path is not None:
+            # satellite imagery draped over the real terrain
+            from vtkmodules.vtkIOImage import vtkJPEGReader
+            out_pts = np.array([poly.GetPoint(i) for i in range(poly.GetNumberOfPoints())])
+            uv = np.column_stack([(out_pts[:, 0] - east[0]) / (east[-1] - east[0]),
+                                  (out_pts[:, 1] - north[0]) / (north[-1] - north[0])])
+            tc = numpy_to_vtk(np.ascontiguousarray(uv, dtype=np.float32), deep=True)
+            tc.SetName("TextureCoordinates")
+            poly.GetPointData().SetTCoords(tc)
+            reader = vtkJPEGReader()
+            reader.SetFileName(str(texture_path))
+            tex = vtkTexture()
+            tex.SetInputConnection(reader.GetOutputPort())
+            tex.InterpolateOn()
+            tex.MipmapOn()
+            ground = self._actor(poly, (1, 1, 1), texture=tex)
+            ground.GetMapper().ScalarVisibilityOff()
+        else:
+            col = T.colours()[::step, ::step].reshape(-1, 3)
+            arr = numpy_to_vtk(np.ascontiguousarray(col, dtype=np.uint8), deep=True)
+            arr.SetName("Colors")
+            poly.GetPointData().SetScalars(arr)
+            ground = self._actor(poly, (1, 1, 1))
+            ground.GetMapper().SetScalarModeToUsePointData()
+            ground.GetMapper().ScalarVisibilityOn()
         ground.GetProperty().SetAmbient(0.25)
         self.renderer.AddActor(ground)
-        water = vtkPlaneSource()
-        water.SetOrigin(east[0], north[0], WATER_LEVEL)
-        water.SetPoint1(east[-1], north[0], WATER_LEVEL)
-        water.SetPoint2(east[0], north[-1], WATER_LEVEL)
-        wa = self._actor(water.GetOutputPort(), (0.28, 0.45, 0.62))
-        wa.GetProperty().SetSpecular(0.6)
-        self.renderer.AddActor(wa)
+        if texture_path is None:  # the procedural world's sea and lakes
+            water = vtkPlaneSource()
+            water.SetOrigin(east[0], north[0], WATER_LEVEL)
+            water.SetPoint1(east[-1], north[0], WATER_LEVEL)
+            water.SetPoint2(east[0], north[-1], WATER_LEVEL)
+            wa = self._actor(water.GetOutputPort(), (0.28, 0.45, 0.62))
+            wa.GetProperty().SetSpecular(0.6)
+            self.renderer.AddActor(wa)
         # town: one merged mesh of boxes
         verts, faces = [], []
         box_f = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
@@ -352,7 +385,7 @@ class SimulatorWindow(QMainWindow):
         # runways of every airport: surfaces, markings and edge lights merged per colour; PAPI per runway
         surf, white, lights = [], [], []
         self.papis = []  # (runway, [4 actors], aim point ENU)
-        for rw in RUNWAYS:
+        for rw in self.terrain.runways:
             hw, L, z = rw.half_width, rw.length, rw.elevation
             surf.append(oriented_box(rw, 0, L, -hw, hw, z + 0.02, z + 0.05))
             for a_ in np.arange(400, L - 100, 60):
@@ -680,9 +713,23 @@ class SimulatorWindow(QMainWindow):
         mass = self.sim.mass if hasattr(self, "sim") else md.mass
         return 1.23 * math.sqrt(2 * mass * G0 / (RHO0 * md.S * (md.CLmax + md.flap_dCL)))
 
+    world_requested = Signal(str)
+
+    def _world_chosen(self, i: int) -> None:
+        """Remember the world; the main window rebuilds the simulator in it (or say how, if standalone)."""
+        name = self._worlds[i][0]
+        if name == getattr(self.terrain, "name", None):
+            return
+        from ..app.settings import settings as _settings
+        _settings().setValue("sim/world", name)
+        if self.receivers(self.world_requested) > 0:
+            self.world_requested.emit(name)
+        else:
+            self.coach_view.setText("<b>World changed</b> — reopen the flight simulator to fly there.")
+
     def engage_autopilot(self):
         program = self.ap_programs[self.ap_program.currentIndex()][0]
-        dest = RUNWAYS[self.ap_dest.currentIndex()]
+        dest = self.terrain.runways[self.ap_dest.currentIndex()]
         if program == "flight_plan" and not self.ap.plan:
             self.ap.status = "Add waypoints first (tick 'Click map to add' and click on the map)"
             return
@@ -799,7 +846,7 @@ class SimulatorWindow(QMainWindow):
         def dist(rw):
             a, r = rw.local(n, e)
             return abs(r) + max(0.0, -a, a - rw.length)
-        return min(RUNWAYS, key=dist)
+        return min(self.terrain.runways, key=dist)
 
     def approach_info(self) -> dict:
         """Distance to the aiming point, glide-slope and centreline deviation for the target runway."""
@@ -1004,7 +1051,7 @@ class MiniMap(QWidget):
         n0, n1, e0, e1 = self._extent
         p.fillRect(self.rect(), QColor(48, 82, 125))
         p.drawImage(QRectF(self._to_px(n1, e0), self._to_px(n0, e1)), self._img)
-        for rw in RUNWAYS:
+        for rw in self.win.terrain.runways:
             a, b = self._to_px(*rw.point(0)), self._to_px(*rw.point(rw.length))
             p.setPen(QPen(QColor(20, 20, 20), 4))
             p.drawLine(a, b)

@@ -139,6 +139,7 @@ class Autopilot:
 
     def _nearest_runway(self) -> Runway:
         from .terrain import RUNWAYS
+        RUNWAYS = getattr(self.sim.terrain, "runways", None) or RUNWAYS
         n, e = self.sim.state[0], self.sim.state[1]
 
         def dist(rw):
@@ -149,8 +150,12 @@ class Autopilot:
     # ------------------------------------------------------------------ routes
     def _build_pattern(self, rw: Runway) -> None:
         """Right-hand circuit: upwind, crosswind, downwind, base, final approach fix."""
-        from .terrain import runway_by_code
-        landing = runway_by_code(rw.code)
+        world_rws = getattr(self.sim.terrain, "runways", None)
+        if world_rws:
+            landing = next((r for r in world_rws if r.code == rw.code), rw)
+        else:
+            from .terrain import runway_by_code
+            landing = runway_by_code(rw.code)
         if not landing.approach_both_ends:  # one-way strip: always land in its landing direction
             rw = landing
         h = rw.elevation + self.pattern_height

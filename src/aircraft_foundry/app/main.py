@@ -48,7 +48,19 @@ def main(argv: list[str] | None = None) -> int:
         window._load_project(Project.load(args[0]))
     window.show()
     _log("SELF-TEST STAGE: window shown (OpenGL context next)") if _LOG else None
-    return app.exec()
+    code = app.exec()
+    # Skip Python's module teardown: on Windows, VTK/Qt native objects destroyed in the wrong order
+    # at interpreter exit crash *after* everything has finished (access violation, no Python frame).
+    # Settings and the library are already saved when the window closes.
+    import os
+    for stream in (sys.stdout, sys.stderr, _LOG):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+    if _LOG is not None:
+        _LOG.close()
+    os._exit(code)
 
 
 def _schedule_self_test(window, log_path: str | None = None) -> None:
