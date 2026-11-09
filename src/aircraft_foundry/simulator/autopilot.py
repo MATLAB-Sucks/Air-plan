@@ -115,7 +115,13 @@ class Autopilot:
             elif program == "land":
                 self.plan = []  # straight to the destination's final approach fix
                 self.wp_index = 0
-                self._set_mode("NAV")
+                rw = self.destination
+                along, right = rw.local(t["north"], t["east"])
+                aligned = abs(wrap180(t["heading"] - rw.heading_deg)) < 50
+                if -16000 < along < -2500 and abs(right) < 3000 and aligned:
+                    self._set_mode("APPROACH")  # already in front of the runway: intercept directly
+                else:
+                    self._set_mode("NAV")
             else:
                 self._build_pattern(self.runway)
                 self._set_mode("NAV")

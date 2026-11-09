@@ -22,6 +22,9 @@ hidden = (collect_submodules("aircraft_foundry")
 # game controllers (SDL2 via pygame)
 hidden += ["pygame", "pygame._sdl2", "pygame._sdl2.controller", "aircraft_foundry.input.controller"]
 datas, binaries = [], []
+# real-world simulator maps (heights, imagery, runways) ship inside the app
+from PyInstaller.utils.hooks import collect_data_files
+datas += collect_data_files("aircraft_foundry", includes=["simulator/worlds/**/*"])
 if WITH_CAD:
     hidden += collect_submodules("cadquery") + collect_submodules("OCP")
     datas += collect_data_files("cadquery")
@@ -47,7 +50,7 @@ if sys.platform == "darwin":
         name="Aircraft Foundry.app",
         bundle_identifier="com.aircraftfoundry.app",
         info_plist={
-            "CFBundleShortVersionString": "0.9.3",
+            "CFBundleShortVersionString": "0.9.4",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
             "CFBundleDocumentTypes": [{"CFBundleTypeName": "Aircraft Foundry Project",

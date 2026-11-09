@@ -61,9 +61,37 @@ class RealWorld:
         base = rw.get("icao") or "".join(w[0] for w in re.findall(r"[A-Za-z]+", rw.get("airfield", "AF")))[:4].upper()
         return f"{base} {(rw.get('ref') or '').split('/')[0] or round(rw['heading_deg'] / 10):0>2}".strip()
 
+    @staticmethod
+    def _clean(raw: list) -> list:
+        """OpenStreetMap often maps a runway twice (centre line and outline) and has short unnamed
+        fragments: merge duplicates (same airfield, same direction, overlapping) and drop fragments."""
+        keep = []
+        for rw in sorted(raw, key=lambda r: (not r.get("ref"), -r["length"])):
+            if not rw.get("ref") and rw["length"] < 500:
+                continue
+            if rw.get("ref") and rw["length"] < 350:
+                continue
+            mid = (rw["north"] + 0.5 * rw["length"] * math.cos(math.radians(rw["heading_deg"])),
+                   rw["east"] + 0.5 * rw["length"] * math.sin(math.radians(rw["heading_deg"])))
+            dup = False
+            for k in keep:
+                kmid = (k["north"] + 0.5 * k["length"] * math.cos(math.radians(k["heading_deg"])),
+                        k["east"] + 0.5 * k["length"] * math.sin(math.radians(k["heading_deg"])))
+                same_axis = abs(((rw["heading_deg"] - k["heading_deg"]) + 90) % 180 - 90) < 12
+                if same_axis and math.hypot(mid[0] - kmid[0], mid[1] - kmid[1]) < 0.5 * max(k["length"], 300):
+                    dup = True
+                    if not k.get("ref") and rw.get("ref"):
+                        k["ref"] = rw["ref"]
+                    # centre lines often carry a default width; the outline measures the real one
+                    k["width"] = min(max(k["width"], rw["width"]), 80.0)
+                    break
+            if not dup:
+                keep.append(dict(rw))
+        return keep
+
     def _make_runways(self, raw: list) -> list[Runway]:
         out, seen = [], set()
-        for rw in raw:
+        for rw in self._clean(raw):
             hdg = rw["heading_deg"]
             ref = rw.get("ref") or ""
             n0, e0 = rw["north"], rw["east"]

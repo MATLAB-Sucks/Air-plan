@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.4
+- **Real-world flying around Lasham** (the gliding capital): real terrain heights, Sentinel-2
+  satellite imagery, and the real runways of Lasham, RAF Odiham, Farnborough, Blackbushe, Popham
+  and nearby strips from OpenStreetMap. Choose the world on the simulator's Flight tab; the
+  fictional test range is still there. Map data is built on GitHub by `tools/build_world.py`.
+- **Installer: choose where and how.** This computer, a USB / external drive (portable: planes
+  stay on the drive) or any folder; the ready-to-run app or from source. Source installs reuse
+  this computer's Python 3.11 or put a self-contained Python inside the install folder, so they
+  work first time and from any drive.
+- **Fixed: the macOS installer stopped with "AUTH[@]: unbound variable"** (macOS's bash 3.2).
+- **Updates for source copies**: the update button now works for copies unpacked from a zip
+  (not just installed apps and git checkouts).
+- Fixed: a crash on exit on Windows when running from source; autopilot "Land now" intercepts
+  directly when already lined up.
+
 ## 0.9.3
 - **One-command install** for Windows (`irm …/install.ps1 | iex`) and macOS / Linux
   (`curl -fsSL …/install.sh | bash`). It downloads the latest release, verifies its

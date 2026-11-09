@@ -336,3 +336,19 @@ def test_stall_protection_prevents_deep_stall(airliner):
         sim.step(1 / 100)
         worst = max(worst, sim.telemetry()["alpha"])
     assert worst < 1.05 * math.degrees((md.CLmax - md.CL0) / md.CLa) and not sim.crashed
+
+
+def test_real_world_lasham_loads_with_real_runways():
+    from aircraft_foundry.simulator.world import available_worlds, load_world
+    names = [n for n, _ in available_worlds()]
+    assert "lasham" in names and "test-range" in names
+    w = load_world("lasham")
+    assert w.home.code.startswith("EGHL") and w.home.name.startswith("Lasham")
+    assert 80 < w.home.heading_deg < 95 and 1500 < w.home.length < 1900  # Lasham 09/27, ~1.7-1.8 km
+    assert 170 < w.home.elevation < 200  # 618 ft
+    assert w.home.width >= 40  # the outline's real width, not a centre line's default
+    codes = [r.code for r in w.runways]
+    assert len(codes) == len(set(codes)) and sum(c.startswith("EGHL 09") for c in codes) == 1  # duplicates merged
+    for r in w.runways:  # every runway sits on the terrain
+        assert w.surface_height(*r.point(r.length / 2)) == pytest.approx(r.elevation, abs=0.5)
+    assert any(r.name == "RAF Odiham" for r in w.runways) and w.texture_path is not None and w.attribution

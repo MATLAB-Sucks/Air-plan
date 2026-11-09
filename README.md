@@ -15,6 +15,12 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.9.4:**
+
+* Fly around **Lasham** on real terrain, satellite imagery and real runways.
+* The installer lets you choose where and how to install.
+* Fixed the macOS installer error.
+
 **New in 0.9.3:**
 
 * **One-command install** (see above).
@@ -127,6 +133,16 @@ irm https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.ps1 | i
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.sh | bash
+```
+
+The installer asks **where** to install (this computer, a USB / external
+drive, or a folder you choose) and **how** (ready-to-run app, or from source).
+You can also set these up front, for example to put the portable app on
+drive E: with no questions:
+
+```powershell
+$env:AF_TARGET="drive"; $env:AF_INSTALL_DIR="E:\"; $env:AF_MODE="app"; $env:AF_YES="1"
+irm https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.ps1 | iex
 ```
 
 What the installer does:

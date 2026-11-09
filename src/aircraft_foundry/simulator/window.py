@@ -187,6 +187,9 @@ class SimulatorWindow(QMainWindow):
         self.airport_box = QComboBox()
         self.airport_box.addItems([f"{r.code} — {r.name} (rwy {r.heading_deg:03.0f}, {r.elevation:.0f} m)" for r in self.terrain.runways])
         self.airport_box.currentIndexChanged.connect(lambda i: setattr(self, "start_runway", self.terrain.runways[i]))
+        home_i = list(self.terrain.runways).index(self.terrain.home) if self.terrain.home in self.terrain.runways else 0
+        self.airport_box.setCurrentIndex(home_i)  # start at the world's home airfield (Lasham)
+        self.ap_dest_default = home_i
         self.fuel_box = QSpinBox()
         self.fuel_box.setRange(1, 100)
         self.fuel_box.setValue(60)
@@ -240,6 +243,7 @@ class SimulatorWindow(QMainWindow):
         self.ap_program.addItems([label for _, label in self.ap_programs])
         self.ap_dest = QComboBox()
         self.ap_dest.addItems([f"{r.code} — {r.name}" for r in self.terrain.runways])
+        self.ap_dest.setCurrentIndex(getattr(self, "ap_dest_default", 0))
         self.ap_height = QSpinBox()
         self.ap_height.setRange(150, 3000)
         self.ap_height.setValue(450)
