@@ -132,6 +132,7 @@ class StructureParams:
     wing_material: str = choice("Al 7075-T6", MATERIALS, "Wing box material")
     fuselage_material: str = choice("Al 2024-T3", MATERIALS, "Fuselage shell material")
     limit_load_factor: float = p(2.5, 2.0, 12.0, "g", "Limit manoeuvre load factor", step=0.1)
+    negative_load_factor: float = p(-1.0, -12.0, -0.5, "g", "Negative limit load factor (pushing / inverted)", step=0.1)
     safety_factor: float = p(1.5, 1.25, 2.0, "", "Ultimate safety factor", step=0.05)
     min_gauge_mm: float = p(1.0, 0.5, 3.0, "mm", "Minimum skin gauge", step=0.1)
     cabin_altitude_m: float = p(2438.0, 0.0, 3000.0, "m", "Cabin pressure altitude", step=50)

@@ -730,6 +730,7 @@ def _size_aerobatic(mission: MissionRequirements, config: ConfigurationParams) -
         "controls.aileron_start": 0.12, "controls.aileron_end": 0.97, "controls.aileron_chord": 0.30,
         "controls.flap_end": 0.0, "controls.elevator_chord": 0.35, "controls.rudder_chord": 0.35,
         "structure.limit_load_factor": getattr(mission, "g_limit", 10.0), "structure.safety_factor": 1.5,
+        "structure.negative_load_factor": -getattr(mission, "g_limit", 10.0),  # unlimited aerobatics: symmetric
         "structure.insulation_kg_m2": 0.0,
         "engines.count": 1, "htail.sweep_le_deg": 5.0, "htail.taper_ratio": 0.6, "htail.dihedral_deg": 0.0,
         "htail.x_position": 0.80, "vtail.sweep_le_deg": 25.0, "vtail.taper_ratio": 0.6, "vtail.x_position": 0.84,

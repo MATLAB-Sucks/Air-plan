@@ -54,6 +54,7 @@ def test_g_limit_now_drives_structural_weight(stunt):
     p, m, _ = stunt
     soft = p.copy()
     soft.set("structure.limit_load_factor", 4.4)
+    soft.set("structure.negative_load_factor", -1.8)  # utility category: the larger limit sizes the structure
     w10, w44 = evaluate(p, m).weights["wing"], evaluate(soft, m).weights["wing"]
     assert w10 > 1.3 * w44  # a +-10 g wing is much heavier than a +4.4 g one
 
@@ -85,3 +86,16 @@ def test_airliner_still_breaks_at_minus_one_point_five_g():
     p = baseline(m, _C("turbofan", "wing", "conventional", "low"))
     md = build_aero_model(p, m, evaluate(p, m))
     assert md.n_negative_limit == 1.0
+
+
+
+def test_negative_g_limit_sizes_the_structure_too(stunt):
+    p, m, _ = stunt
+    a = p.copy()
+    a.set("structure.limit_load_factor", 4.4)
+    a.set("structure.negative_load_factor", -1.8)
+    b = a.copy()
+    b.set("structure.negative_load_factor", -8.0)  # strong inverted capability, same positive limit
+    assert evaluate(b, m).weights["wing"] > 1.2 * evaluate(a, m).weights["wing"]
+    from aircraft_foundry.simulator.flightmodel import build_aero_model
+    assert build_aero_model(b, m, evaluate(b, m)).n_negative_limit == pytest.approx(8.0)

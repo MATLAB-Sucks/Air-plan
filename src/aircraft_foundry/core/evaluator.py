@@ -297,7 +297,9 @@ class _Model:
     @property
     def nz_ult(self) -> float:
         """Ultimate load factor of *this* design (limit x safety factor): 3.75 for airliners, 15 for +10 g stunt planes."""
-        return self.p.structure.limit_load_factor * self.p.structure.safety_factor
+        st = self.p.structure
+        # the structure is sized for whichever is larger: the positive or the negative limit
+        return max(st.limit_load_factor, abs(getattr(st, "negative_load_factor", -1.0))) * st.safety_factor
 
     @property
     def light_aircraft(self) -> bool:

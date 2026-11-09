@@ -98,6 +98,8 @@ class AeroModel:
     semi_span: float = 1.0
     n_negative_limit: float = 1.0  # transports -1 g; unlimited-aerobatic designs are rated symmetrically
     wing_strength: float = 1.0  # strength reserve factor chosen for the wing
+    t_tail: bool = False  # deep-stall risk: the stalled wing's wake blankets a high tailplane
+    CLmin: float = -1.0  # negative stall (inverted)
 
 
 def build_aero_model(params: AircraftParameters, mission: MissionRequirements, evaluation: Evaluation,
@@ -219,8 +221,9 @@ def build_aero_model(params: AircraftParameters, mission: MissionRequirements, e
                      n_ultimate=params.structure.limit_load_factor * params.structure.safety_factor,
                      design_mass=m["mtow_kg"], semi_span=w.semi_span,
                      wing_strength=params.structure.wing_strength,
-                     n_negative_limit=(params.structure.limit_load_factor
-                                       if getattr(mission, "category", "transport") == "aerobatic" else 1.0),
+                     n_negative_limit=abs(getattr(params.structure, "negative_load_factor", -1.0)),
+                     t_tail=bool(arr.is_t_tail),
+                     CLmin=-(max(1.15, m.get("clmax_landing", 1.5) - flap_dCL) - 1.6 * params.wing.camber * 6.0),
                      # design dive speed V_D ~ 1.5 x cruise equivalent airspeed (A320: ~250 KEAS cruise,
                      # V_D ~ 381 KEAS); dynamic pressure is the structural measure
                      q_dive=(1.5 ** 2) * 0.5 * isa(mission.cruise_altitude_m).density * m["cruise_speed_ms"] ** 2)
@@ -290,6 +293,8 @@ class FlightSimulator:
         self.gust = np.zeros(3)
         self._rng = np.random.default_rng(11)
         self.failure = ""  # "", "left wing", "right wing", "tail"
+        self._sep, self._sep_target, self._sep_frozen = 1.0, 1.0, False
+        self._buffet_dcl, self._near_stall = 0.0, 0.0
         self.stress = {"left": 0.0, "right": 0.0, "q": 0.0}
         self.distance_flown = 0.0
         self.fuel_flow = 0.0
@@ -333,19 +338,25 @@ class FlightSimulator:
             dr += Controls.MAX_RUDDER * float(np.clip(-40 * (rh - rh_cmd) + 4.0 * beta, -1.0, 1.0))
             de += float(np.clip(-0.8 * qh * 40 * Controls.MAX_ELEVATOR, -0.4 * Controls.MAX_ELEVATOR,
                                 0.4 * Controls.MAX_ELEVATOR))
-        # lift with a smooth stall
+        # lift: attached flow blends into separated (flat-plate) flow through the stall
         cl_lin = md.CL0 + md.CLa * alpha + md.CLq * qh + md.CLde * de + md.flap_dCL * ctl.flaps
         clmax = md.CLmax + md.flap_dCL * ctl.flaps
-        if abs(cl_lin) > clmax:
-            excess = abs(cl_lin) - clmax
-            cl = math.copysign(clmax - 0.8 * excess, cl_lin)
-            cl = math.copysign(max(abs(cl), abs(math.sin(2 * alpha))), cl_lin)  # flat-plate floor
-            stalled = True
-        else:
-            cl, stalled = cl_lin, False
+        clmin = md.CLmin
+        lim = clmax if cl_lin >= 0 else -clmin
+        width = 0.04 * lim  # transition centred just past CLmax, so the curve rounds over right at CLmax
+        target = 1.0 / (1.0 + math.exp(max(min((abs(cl_lin) - 1.1 * lim) / width, 40.0), -40.0)))
+        sep = min(self._sep, target) if self._sep_frozen else target  # separation memory (set in step)
+        a_eff = cl_lin / md.CLa
+        cl_att = math.copysign(lim - 0.08 * lim * math.log1p(math.exp(-(abs(cl_lin) - lim) / (0.08 * lim)))
+                               if abs(cl_lin) > 0.7 * lim else abs(cl_lin), cl_lin)  # smooth cap at CLmax
+        cl_sep = 0.9 * math.sin(2.0 * a_eff)  # flat plate
+        cl = sep * cl_att + (1.0 - sep) * cl_sep + self._buffet_dcl
+        stalled = sep < 0.5
+        self._sep_target = target
+        self._near_stall = abs(cl_lin) / max(lim, 1e-6)
         cd = md.polar.cd(min(abs(cl), 1.5), max(min(mach, 3.0), 0.05))[0]
         cd += md.flap_dCD * ctl.flaps + (md.gear_dCD if ctl.gear_down else 0.0)
-        cd += 1.2 * math.sin(alpha) ** 2 if stalled else 0.0
+        cd += (1.0 - sep) * 1.8 * math.sin(a_eff) ** 2  # separated flow: drag of an inclined plate
         cd += 0.02 * abs(dr) if (not md.has_fins) else 0.0  # drag rudders open
         if self.failure in ("left wing", "right wing"):  # one wing gone: half the lift, violent roll
             side = 1.0 if self.failure == "right wing" else -1.0
@@ -353,9 +364,21 @@ class FlightSimulator:
             cd += 0.05
         cy = md.CYb * beta + md.CYdr * dr
         clb = md.Clb_dihedral + md.Clb_sweep * cl
-        c_l = clb * beta + md.Clp * ph + md.Clr_per_CL * cl * rh + md.Clda * da + md.Cldr * dr
+        # stalled wings lose, then reverse, their roll damping (autorotation): sideslip or yaw drops a wing
+        # Autorotation is self-limiting: the reversed damping only acts for moderate roll rates
+        # (pb/2V up to ~0.1); beyond that the wing is damped again.  This is what sustains a spin.
+        autorot = -1.6 * (1.0 - sep) * md.Clp * ph * math.exp(-(ph / 0.1) ** 2)
+        # yawing right speeds up the left wing: the right wing stalls deeper and drops (spins follow the rudder)
+        wing_drop = 0.04 * (1.0 - sep) * math.tanh(8.0 * rh - 3.0 * beta)
+        c_l = clb * beta + md.Clp * ph + autorot + md.Clr_per_CL * cl * rh + md.Clda * da * (0.4 + 0.6 * sep) \
+            + md.Cldr * dr + wing_drop
         ac_shift = md.supersonic_ac_shift * float(np.clip((mach - 0.9) / 0.7, 0, 1))
         cm = md.Cm0 + (md.Cma - md.CLa * ac_shift) * alpha + md.Cmq * qh + md.Cmde * de
+        if md.t_tail:  # deep stall: far past the stall the wing's wake blankets the tailplane -> nose stays up
+            deep = (1.0 - sep) * float(np.clip((abs(a_eff) - lim / md.CLa - 0.06) / 0.12, 0.0, 1.0))
+            cm = (1.0 - deep) * cm + deep * (0.08 + 0.1 * md.Cmde * de)  # blanketed elevator: little authority
+        else:  # conventional pitch break: the nose drops as the wing stalls
+            cm -= 0.12 * (1.0 - sep) * math.copysign(1.0, cl_lin)
         if self.failure in ("left wing", "right wing"):
             c_l += side * 0.25 * abs(cl) + side * 0.15
         if self.failure == "tail":  # stabiliser gone: pitch-unstable, no elevator
@@ -438,6 +461,11 @@ class FlightSimulator:
         k3 = self.derivative(s + 0.5 * dt * k2, ctl)
         k4 = self.derivative(s + dt * k3, ctl)
         self.state = s + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+        # separation builds up / reattaches over ~0.3 s; buffet shakes the airframe near the stall
+        self._sep += (self._sep_target - self._sep) * min(dt / 0.3, 1.0)
+        self._sep_frozen = True
+        nb = float(np.clip((self._near_stall - 0.88) / 0.12, 0.0, 1.0))
+        self._buffet_dcl = 0.05 * nb * float(self._rng.standard_normal())
         self.state[6:10] /= np.linalg.norm(self.state[6:10])
         self.time += dt
         self.derivative(self.state, ctl)  # refresh telemetry at the new state
@@ -548,6 +576,7 @@ class FlightSimulator:
         h = max((R @ p)[2] for p, _ in md.gear_points)
         n0, e0 = rw.point(along)
         self.state = np.concatenate([[n0, e0, -h + 0.02 - self.ground(n0, e0)], np.zeros(3), q, np.zeros(3)])
+        self._sep, self._sep_frozen, self._buffet_dcl = 1.0, False, 0.0
         self.controls = Controls(sas=self.controls.sas, gear_down=True, throttle=0.0, brakes=True)
         self.crashed = self.failure = self.failure_msg = ""
         self.time = 0.0
@@ -588,6 +617,7 @@ class FlightSimulator:
         self.time = 0.0
         self.airborne_since, self.touchdown, self.landing = 0.0, None, None
         self.distance_flown = 0.0
+        self._sep, self._sep_frozen, self._buffet_dcl = 1.0, False, 0.0
         self.derivative(self.state, self.controls)  # fresh telemetry for the new position
         return ok and 0 <= thr <= 1.0 and abs(de) <= 1.0
 
@@ -602,7 +632,7 @@ class FlightSimulator:
         return {"time": self.time, "airspeed": f.get("V", 0.0), "mach": f.get("mach", 0.0), "altitude": -s[2],
                 "vs": -v_ned[2], "alpha": f.get("alpha", 0.0) / D2R, "beta": f.get("beta", 0.0) / D2R,
                 "pitch": theta / D2R, "roll": phi / D2R, "heading": (psi / D2R) % 360, "load_factor": n_z,
-                "throttle": self.controls.throttle, "reheat": f.get("reheat", False), "stalled": f.get("stalled", False),
+                "throttle": self.controls.throttle, "reheat": f.get("reheat", False), "stalled": f.get("stalled", False), "buffet": float(np.clip((self._near_stall - 0.88) / 0.12, 0, 1)),
                 "on_ground": f.get("on_ground", False), "ground_speed": float(np.hypot(v_ned[0], v_ned[1])),
                 "fuel_kg": self.fuel, "fuel_flow_kgh": self.fuel_flow * 3600, "mass_kg": self.mass,
                 "distance_km": self.distance_flown / 1000, "stress": self.max_stress,

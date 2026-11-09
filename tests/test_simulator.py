@@ -261,7 +261,7 @@ def test_fuel_burn_mass_and_flameout(airliner):
 def test_structural_failure_and_manoeuvring_speed(airliner):
     md, _ = airliner
     fast = FlightSimulator(md, Terrain())
-    fast.start_in_flight(180, 3000)
+    fast.start_in_flight(195, 3000)  # clearly above manoeuvring speed (the stall model rounds off CLmax)
     fast.controls.elevator, fast.controls.sas = 1.0, False
     for _ in range(100 * 10):
         fast.step(1 / 100)
@@ -352,3 +352,53 @@ def test_real_world_lasham_loads_with_real_runways():
     for r in w.runways:  # every runway sits on the terrain
         assert w.surface_height(*r.point(r.length / 2)) == pytest.approx(r.elevation, abs=0.5)
     assert any(r.name == "RAF Odiham" for r in w.runways) and w.texture_path is not None and w.attribution
+
+
+
+def test_stall_spin_and_recovery():
+    """Lift rounds off at CLmax, the nose drops; full rudder in a stall gives a spin that follows the
+    rudder; the standard recovery (opposite rudder, stick forward) stops it."""
+    from aircraft_foundry.core.synthesis import aerobatic_mission, configurations_for
+    m = aerobatic_mission()
+    p = baseline(m, configurations_for(m)[0])
+    md = build_aero_model(p, m, evaluate(p, m))
+    sim = FlightSimulator(md)
+    sim.start_in_flight(45, 1500)
+    sim.controls.throttle, sim.controls.sas = 0.0, False
+    peak, stalled_pitch, later = 0.0, None, 99.0
+    for i in range(100 * 20):
+        sim.controls.elevator = min(1.0, i / 1200)
+        sim.step(1 / 100)
+        peak = max(peak, sim.last_forces["cl"])
+        if stalled_pitch is None and sim.last_forces["stalled"]:
+            stalled_pitch = sim.telemetry()["pitch"]
+        elif stalled_pitch is not None:
+            later = min(later, sim.telemetry()["pitch"])
+    assert 0.9 * md.CLmax < peak < 1.05 * md.CLmax and stalled_pitch is not None and later < stalled_pitch - 15
+    spin = FlightSimulator(md)
+    spin.start_in_flight(40, 2000)
+    spin.controls.throttle, spin.controls.sas = 0.0, False
+    for _ in range(100 * 14):
+        spin.controls.elevator, spin.controls.rudder = 1.0, 1.0
+        spin.step(1 / 100)
+    assert spin.last_forces["stalled"] and math.degrees(spin.state[12]) > 40 and math.degrees(spin.state[10]) > 0
+    assert spin.telemetry()["altitude"] < 1800  # spins lose height fast
+    for _ in range(100 * 12):
+        spin.controls.rudder = -1.0 if spin.time < 18 else 0.0
+        spin.controls.elevator = -0.6 if spin.time < 17 else 0.1
+        spin.step(1 / 100)
+    assert not spin.last_forces["stalled"] and abs(math.degrees(spin.state[12])) < 10 and not spin.crashed
+
+
+def test_t_tail_deep_stall():
+    m = MissionRequirements()
+    p = baseline(m, _C("turbofan", "rear_fuselage", "t_tail", "low"))
+    md = build_aero_model(p, m, evaluate(p, m))
+    assert md.t_tail
+    sim = FlightSimulator(md)
+    sim.start_in_flight(85, 3000)
+    sim.controls.throttle, sim.controls.sas = 0.0, False
+    for _ in range(100 * 20):
+        sim.controls.elevator = 1.0 if sim.time < 12 else -1.0
+        sim.step(1 / 100)
+    assert sim.last_forces["stalled"] and sim.telemetry()["alpha"] > 25  # stuck nose-high despite full push

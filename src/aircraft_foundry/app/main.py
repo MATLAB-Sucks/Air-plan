@@ -79,25 +79,10 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
     _log("SELF-TEST STAGE: window shown (OpenGL context next)") if _LOG else None
     code = app.exec()
-    # Skip Python's module teardown: on Windows, VTK/Qt native objects destroyed in the wrong order
-    # at interpreter exit crash *after* everything has finished (access violation, no Python frame).
-    # Settings and the library are already saved when the window closes.
-    import os
-    for stream in (sys.stdout, sys.stderr, _LOG):
-        try:
-            stream.flush()
-        except Exception:
-            pass
+    # Skip Python's module teardown (Windows VTK/Qt native objects can crash in it): see hard_exit
     if _LOG is not None:
-        _LOG.close()
-    if sys.platform.startswith("win"):
-        # os._exit still runs ExitProcess, which calls every DLL's unload routine - VTK, Qt and SDL
-        # crash in theirs (0xC0000005 after a clean finish). TerminateProcess skips them; everything
-        # has already been saved and flushed.
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        k32.TerminateProcess(k32.GetCurrentProcess(), code & 0xFFFFFFFF)
-    os._exit(code)
+        _LOG.flush()
+    hard_exit(code)
 
 
 def _schedule_self_test(window, log_path: str | None = None) -> None:
