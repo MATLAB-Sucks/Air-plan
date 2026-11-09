@@ -139,10 +139,14 @@ class UpdateDialog(QDialog):
         elif mode == "frozen" and info.installable:
             self.install_btn.setText(f"Download and install ({info.asset_size / 1e6:.0f} MB)")
             self.install_btn.setEnabled(True)
+        elif mode == "source":
+            self.install_btn.setText("Update the program files")
+            self.install_btn.setEnabled(True)
         else:
             self.install_btn.setEnabled(False)
-            self.notes.append("\nThis copy runs from source without git, or the release has no verified "
-                              "download for this computer: download it from the release page.")
+            self.headline.setText(self.headline.text() + " — no verified download for this computer")
+            self.notes.append("\nThis release has no verified download for this computer yet (it may still be "
+                              "building on GitHub). Try again in a few minutes, or use the one-line installer.")
 
     def _progress(self, done, total):
         self.bar.setRange(0, max(total, 1))
@@ -155,10 +159,12 @@ class UpdateDialog(QDialog):
         mode = up.install_mode()
         self.install_btn.setEnabled(False)
         self.check_btn.setEnabled(False)
-        if mode == "git":
+        if mode in ("git", "source"):
             w = _Worker()
             w.finished.connect(lambda out, err: self._done_git(out, err))
-            w.run(up.git_update)
+            repo, token = self.repo.text().strip() or up.DEFAULT_REPO, self.token.text().strip() or None
+            info = self.info
+            w.run(up.git_update if mode == "git" else (lambda: up.source_update(info, repo, token=token)))
             self._git_worker = w
             return
         self.bar.show()

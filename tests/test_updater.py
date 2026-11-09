@@ -159,3 +159,30 @@ def test_github_errors_are_explained():
     with pytest.raises(up.UpdateError, match="60 update checks per hour"):
         up.check_for_update("me/repo", fetch=raiser(403, {"X-RateLimit-Remaining": "0",
                                                           "X-RateLimit-Reset": "1800000000"}))
+
+
+def test_source_copies_update_from_the_release_tarball(tmp_path):
+    import tarfile
+    root = tmp_path / "app"
+    (root / "src" / "aircraft_foundry").mkdir(parents=True)
+    (root / "pyproject.toml").write_text("old")
+    (root / "src" / "aircraft_foundry" / "__init__.py").write_text('__version__ = "0.9.0"')
+    (root / ".venv").mkdir()
+    (root / ".venv" / "keep.txt").write_text("env")
+    (root / "AircraftFoundryData").mkdir()
+    (root / "AircraftFoundryData" / "library.sqlite").write_text("my planes")
+    new = tmp_path / "Air-plan-0.9.9"
+    (new / "src" / "aircraft_foundry").mkdir(parents=True)
+    (new / "pyproject.toml").write_text("new")
+    (new / "src" / "aircraft_foundry" / "__init__.py").write_text('__version__ = "0.9.9"')
+    (new / "AircraftFoundryData").mkdir()
+    (new / "AircraftFoundryData" / "library.sqlite").write_text("EMPTY")  # must never overwrite user data
+    tgz = tmp_path / "s.tar.gz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(new, arcname="Air-plan-0.9.9")
+    info = up.UpdateInfo("0.9.9", "", "")
+    msg = up.source_update(info, "me/repo", root=root, fetch=lambda url: tgz.read_bytes())
+    assert "0.9.9" in msg
+    assert '"0.9.9"' in (root / "src" / "aircraft_foundry" / "__init__.py").read_text()
+    assert (root / ".venv" / "keep.txt").read_text() == "env"
+    assert (root / "AircraftFoundryData" / "library.sqlite").read_text() == "my planes"

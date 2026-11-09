@@ -1,0 +1,79 @@
+# Tests the one-line installers whenever they change on main (against the latest release),
+# so a broken installer never reaches people using the README commands.
+name: Installer test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["install.ps1", "install.sh", ".github/workflows/installer-test.yml"]
+
+jobs:
+  install-test:
+    # Installs the just-published release with the one-line commands, on clean machines, in each
+    # supported way (this computer / a drive / a folder; ready-to-run app / from source with a
+    # self-contained Python), exactly as a user would - then self-tests the installed app.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: computer, mode: app, dir: "" }
+          - { os: windows-latest, target: drive, mode: app, dir: 'D:\aftest' }
+          - { os: windows-latest, target: folder, mode: source, dir: 'C:\afsrc' }
+          - { os: macos-15-intel, target: computer, mode: app, dir: "" }
+          - { os: macos-15-intel, target: folder, mode: source, dir: "/Users/runner/afsrc" }
+    runs-on: ${{ matrix.os }}
+    name: install (${{ matrix.os }}, ${{ matrix.target }}, ${{ matrix.mode }})
+    env:
+      AF_VERSION: latest
+      AF_TARGET: ${{ matrix.target }}
+      AF_MODE: ${{ matrix.mode }}
+      AF_INSTALL_DIR: ${{ matrix.dir }}
+      AF_NO_LAUNCH: "1"
+      AF_YES: "1"
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Install with the one-line command (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: irm "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.ps1" | iex
+      - name: Check and self-test the installed app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Fail($m) { Write-Host "::error title=Installer (${{ matrix.target }}, ${{ matrix.mode }})::$($m.Replace('%','%25').Replace("`n",'%0A'))"; exit 1 }
+          if ($env:AF_MODE -eq "source") {
+            $exe = Join-Path $env:AF_INSTALL_DIR "AircraftFoundry-source\python\python.exe"
+            $args_ = @("-m", "aircraft_foundry.app.main")
+            if (-not (Test-Path (Join-Path $env:AF_INSTALL_DIR "AircraftFoundry.cmd"))) { Fail "missing AircraftFoundry.cmd" }
+          } elseif ($env:AF_TARGET -eq "drive") {
+            $exe = Join-Path $env:AF_INSTALL_DIR "Windows\AircraftFoundry\AircraftFoundry.exe"; $args_ = @()
+            if (-not (Test-Path (Join-Path $env:AF_INSTALL_DIR "AircraftFoundryData\portable.json"))) { Fail "missing portable data folder" }
+          } else {
+            $exe = Join-Path $env:LOCALAPPDATA "Programs\AircraftFoundry\AircraftFoundry.exe"; $args_ = @()
+            if (-not (Test-Path (Join-Path ([Environment]::GetFolderPath("Programs")) "Aircraft Foundry.lnk"))) { Fail "missing Start-menu shortcut" }
+          }
+          if (-not (Test-Path $exe)) { Fail "missing $exe" }
+          # GitHub's runners have no GPU: Mesa's software OpenGL next to the program (CI only, not part of installs)
+          $rel = Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; "User-Agent" = "af-ci" } -Uri "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest"
+          $asset = $rel.assets | Where-Object { $_.name -like "*-release-mingw.7z" } | Select-Object -First 1
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mesa.7z
+          7z x mesa.7z -omesa -y | Out-Null
+          Copy-Item mesa\x64\*.dll (Split-Path $exe -Parent)
+          $env:GALLIUM_DRIVER = "llvmpipe"
+          $p = Start-Process -FilePath $exe -ArgumentList ($args_ + @("--self-test", "--self-test-log", "$PWD\selftest.txt")) -Wait -PassThru
+          if (Test-Path selftest.txt) { Get-Content selftest.txt }
+          if ($p.ExitCode -ne 0) { Fail ("self-test exit $($p.ExitCode)`n" + $(if (Test-Path selftest.txt) { (Get-Content selftest.txt -Tail 40) -join "`n" } else { "no log" })) }
+      - name: Install with the one-line command (macOS)
+        if: runner.os == 'macOS'
+        run: curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.sh" | bash
+      - name: Self-test the installed app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ "$AF_MODE" = source ]; then RUN=("$AF_INSTALL_DIR/aircraft-foundry")
+          else APP="/Applications/Aircraft Foundry.app"; [ -d "$APP" ] || APP="$HOME/Applications/Aircraft Foundry.app"; RUN=("$APP/Contents/MacOS/AircraftFoundry"); fi
+          [ -x "${RUN[0]}" ] || { echo "::error title=Installer::missing ${RUN[0]}"; exit 1; }
+          "${RUN[@]}" --self-test --self-test-log "$PWD/selftest.txt" || {
+            msg=$(tail -40 selftest.txt 2>/dev/null | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Installed app self-test failed::$msg"; exit 1; }
+          cat selftest.txt

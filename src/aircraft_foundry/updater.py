@@ -281,6 +281,55 @@ def launch_detached(cmd: list[str]) -> None:
         subprocess.Popen(cmd, start_new_session=True, close_fds=True)
 
 
+KEEP_ON_SOURCE_UPDATE = {".venv", "venv", ".git", "AircraftFoundryData", "build", "dist", "__pycache__"}
+
+
+def source_update(info: UpdateInfo, repo: str = DEFAULT_REPO, root: Path | None = None, token: str | None = None,
+                  fetch=None, run=subprocess.run) -> str:
+    """Update a source copy that isn't a git checkout: replace the program files with the release's source.
+
+    Python environments, git data, build output and data folders are left alone; afterwards the
+    dependencies are re-installed from the lock file for this platform if it changed.
+    """
+    import tarfile
+    import tempfile
+    root = root or source_root()
+    if root is None:
+        raise UpdateError("Couldn't find the program folder.")
+    fetch = fetch or (lambda u: _get(u, token, timeout=120).read())
+    data = fetch(f"https://github.com/{repo}/archive/refs/tags/v{info.version}.tar.gz")
+    with tempfile.TemporaryDirectory() as tmp:
+        tar_path = Path(tmp) / "src.tar.gz"
+        tar_path.write_bytes(data)
+        with tarfile.open(tar_path) as tf:
+            for m in tf.getmembers():
+                if m.name.startswith("/") or ".." in Path(m.name).parts:
+                    raise UpdateError("Unsafe path in the source archive.")
+            tf.extractall(tmp)
+        new_root = next(p for p in Path(tmp).iterdir() if p.is_dir())
+        if not (new_root / "pyproject.toml").exists():
+            raise UpdateError("The download doesn't look like Aircraft Foundry's source.")
+        lock = {"windows": "lock-windows-x64-py311.txt", "linux": "lock-linux-x86_64-py311.txt"}.get(
+            platform_key(), "lock-macos-arm64-py311.txt" if platform.machine() == "arm64" else "lock-macos-intel-py311.txt")
+        old_lock = (root / "requirements" / lock).read_text() if (root / "requirements" / lock).exists() else ""
+        for item in new_root.iterdir():
+            if item.name in KEEP_ON_SOURCE_UPDATE:
+                continue
+            dest = root / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dest)
+    msg = f"Updated the program files to {info.version}."
+    new_lock = (root / "requirements" / lock).read_text() if (root / "requirements" / lock).exists() else ""
+    if new_lock and new_lock != old_lock:
+        out = run([sys.executable, "-m", "pip", "install", "-q", "--only-binary", ":all:", "-r",
+                   str(root / "requirements" / lock)], capture_output=True, text=True)
+        msg += " Dependencies updated." if out.returncode == 0 else \
+            f" Updating the dependencies failed - run: python -m pip install -r requirements/{lock}"
+    return msg
+
+
 def git_update(root: Path | None = None) -> str:
     root = root or source_root()
     if root is None or not (root / ".git").exists():
