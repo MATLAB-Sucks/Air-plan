@@ -34,9 +34,9 @@ jobs:
       AF_YES: "1"
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Install with the one-line command (Windows)
+      - name: Install with the one-line command (Windows PowerShell 5.1, as most people have)
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: powershell
         run: irm "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.ps1" | iex
       - name: Check and self-test the installed app (Windows)
         if: runner.os == 'Windows'

@@ -32,8 +32,14 @@ if ($env:GITHUB_TOKEN) { $Headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" 
 function Release($repo, $tag) {
     $u = if ($tag -eq "latest") { "https://api.github.com/repos/$repo/releases/latest" }
          else { "https://api.github.com/repos/$repo/releases/tags/$tag" }
-    try { return Invoke-RestMethod -Uri $u -Headers $Headers }
+    # Fetch and parse explicitly: Windows PowerShell 5.1's Invoke-RestMethod can hand back unparsed text
+    try { $resp = Invoke-WebRequest -Uri $u -Headers $Headers -UseBasicParsing }
     catch { Die "couldn't read $repo ($tag) from GitHub: $($_.Exception.Message)" }
+    $text = $resp.Content
+    if ($text -is [byte[]]) { $text = [Text.Encoding]::UTF8.GetString($text) }
+    try { $obj = $text | ConvertFrom-Json } catch { Die "GitHub's answer for $repo ($tag) couldn't be read: $($_.Exception.Message)" }
+    if (-not $obj.tag_name) { Die "no release information for $repo ($tag) - is a release published?" }
+    return $obj
 }
 function Download($url, $file) { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing -Headers @{ "User-Agent" = "aircraft-foundry-installer" } }
 function Verify($rel, $file, $name) {
@@ -82,14 +88,14 @@ if (-not $target) {
 }
 $Dir = $env:AF_INSTALL_DIR
 if ($target -eq "computer") { $Dir = Join-Path $env:LOCALAPPDATA "Programs\AircraftFoundry" }
-elseif ($target -eq "drive" -and -not $Dir) {
+elseif ($target -eq "drive" -and -not $Dir) {   # accepts "E", "E:" or "E:\"
     $drives = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2, 3 -and $_.DeviceID -ne $env:SystemDrive }
     foreach ($d in $drives) {
         $kind = if ($d.DriveType -eq 2) { "removable" } else { "drive" }
         Say ("    {0}  {1,-20} {2,6:N1} GB free  ({3})" -f $d.DeviceID, $d.VolumeName, ($d.FreeSpace / 1GB), $kind)
     }
     $pick = if ($drives) { $drives[0].DeviceID } else { "E:" }
-    $Dir = (Ask "Drive letter" $pick).TrimEnd("\", ":") + ":\"
+    $Dir = ((Ask "Drive letter" $pick).Trim().TrimEnd("\").TrimEnd(":")).ToUpper() + ":\"
 }
 elseif ($target -eq "folder" -and -not $Dir) { $Dir = Ask "Folder" (Join-Path $env:USERPROFILE "AircraftFoundry") }
 if (-not $Dir) { Die "no install location" }
@@ -110,7 +116,7 @@ Say "release $($rel.tag_name) -> $Dir ($target, $mode)"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("aircraft-foundry-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force $tmp | Out-Null
 try {
-    New-Item -ItemType Directory -Force $Dir | Out-Null
+    if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Force $Dir | Out-Null }   # never "create" a drive root
     if ($mode -eq "app" -and -not $portable) {
         # ------------------------------------------------ packaged app on this computer
         $name = "AircraftFoundry-Windows.zip"
