@@ -14,6 +14,26 @@ def _log(msg: str) -> None:
         _LOG.flush()
 
 
+def hard_exit(code: int = 0) -> None:
+    """End the process immediately once everything is saved.
+
+    On Windows, Qt / VTK / SDL native objects sometimes crash while being torn down (access violation
+    after a clean finish), and even os._exit runs every DLL's unload routine. TerminateProcess skips all
+    of it. Elsewhere os._exit is enough.
+    """
+    import os
+    for stream in (sys.stdout, sys.stderr, _LOG):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+    if sys.platform.startswith("win"):
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.TerminateProcess(k32.GetCurrentProcess(), int(code) & 0xFFFFFFFF)
+    os._exit(code)
+
+
 def main(argv: list[str] | None = None) -> int:
     global _LOG
     raw = sys.argv if argv is None else argv
@@ -38,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     from .main_window import MainWindow
     _log("SELF-TEST STAGE: building main window") if _LOG else None
     window = MainWindow()
+    window._is_main_app = True  # only the real app ends the process on close (not tests or embedded uses)
     _log("SELF-TEST STAGE: main window built") if _LOG else None
     args = [a for a in app.arguments()[1:] if not a.startswith("-psn_")]  # macOS Finder adds -psn_*
     if "--self-test" in args:
@@ -115,8 +136,7 @@ def _schedule_self_test(window, log_path: str | None = None) -> None:
             say(f"SELF-TEST FAILED: {exc!r}")
             code = 1
         window.dirty = False
-        window.close()
-        QApplication.exit(code)
+        hard_exit(code)  # results are written: skip the (crash-prone on Windows) shutdown entirely
 
     QTimer.singleShot(800, run)
 

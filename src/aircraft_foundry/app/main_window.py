@@ -1009,3 +1009,10 @@ class MainWindow(QMainWindow):
         s.setValue("panels/right", "true" if (pre["right"] if pre else self.right_dock.isVisible()) else "false")
         self.viewport.close()
         super().closeEvent(event)
+        import os as _os
+        import sys as _sys
+        if _sys.platform.startswith("win") and event.isAccepted() and getattr(self, "_is_main_app", False) \
+                and not _os.environ.get("AF_NO_HARD_EXIT"):
+            s.sync()  # everything is saved: end now, before Windows-only native teardown crashes can happen
+            from .main import hard_exit
+            hard_exit(0)

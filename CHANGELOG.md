@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.5
+- **Windows installer fixes:** works with Windows PowerShell 5.1 (the one built into Windows, which
+  could leave the release blank), and installing to a drive root such as `D:\` no longer fails
+  with "The path is not of a legal form". Installer tests now run under PowerShell 5.1 too.
+- **No more crash when closing on Windows:** once everything is saved, the app ends immediately
+  instead of running native shutdown code that could crash ("stopped working").
+
 ## 0.9.4
 - **Real-world flying around Lasham** (the gliding capital): real terrain heights, Sentinel-2
   satellite imagery, and the real runways of Lasham, RAF Odiham, Farnborough, Blackbushe, Popham
