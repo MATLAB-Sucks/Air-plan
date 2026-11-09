@@ -31,4 +31,11 @@ jobs:
           git config user.name "world-builder[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add src/aircraft_foundry/simulator/worlds
-          git diff --cached --quiet && echo "no changes" || (git commit -m "Real-world map data: ${{ inputs.name || 'lasham' }}" && git push)
+          if git diff --cached --quiet; then echo "no changes"; exit 0; fi
+          git commit -m "Real-world map data: ${{ inputs.name || 'lasham' }}"
+          # main may have moved while the map was building: rebase onto it, then push (a few tries)
+          for i in 1 2 3 4 5; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep $((i * 10))
+          done
+          exit 1
