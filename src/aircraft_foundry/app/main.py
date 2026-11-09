@@ -60,6 +60,13 @@ def main(argv: list[str] | None = None) -> int:
             pass
     if _LOG is not None:
         _LOG.close()
+    if sys.platform.startswith("win"):
+        # os._exit still runs ExitProcess, which calls every DLL's unload routine - VTK, Qt and SDL
+        # crash in theirs (0xC0000005 after a clean finish). TerminateProcess skips them; everything
+        # has already been saved and flushed.
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.TerminateProcess(k32.GetCurrentProcess(), code & 0xFFFFFFFF)
     os._exit(code)
 
 
