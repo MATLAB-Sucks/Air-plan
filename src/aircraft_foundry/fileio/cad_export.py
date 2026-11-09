@@ -41,6 +41,7 @@ def build_assembly(components: list[Component], name: str = "aircraft",
 
 def export_step_assembly(components: list[Component], path: str | Path, name: str = "aircraft",
                          progress=None) -> Path:
+    components = [c for c in components if c.type.value != "detail"]  # cosmetic details aren't CAD
     path = Path(path)
     assy = build_assembly(components, name, progress)
     assy.export(str(path), exportType="STEP")
@@ -48,6 +49,7 @@ def export_step_assembly(components: list[Component], path: str | Path, name: st
 
 
 def export_step_each(components: list[Component], directory: str | Path, progress=None) -> list[Path]:
+    components = [c for c in components if c.type.value != "detail"]  # cosmetic details aren't CAD
     _require()
     import cadquery as cq
     directory = Path(directory)

@@ -43,6 +43,7 @@ class ComponentType(str, Enum):
     FRAME = "frame"
     LONGERON = "longeron"
     ATTACHMENT = "attachment"
+    DETAIL = "detail"  # windows, cockpit glazing, intakes: appearance only (not analysed or exported)
 
     @property
     def is_structure(self) -> bool:

@@ -205,8 +205,10 @@ class VLMModel:
 
     def solve(self, alpha_deg: float, beta_deg: float = 0.0, deflections: dict | None = None,
               speed: float = 100.0, rho: float = 1.225) -> VLMResult:
+        return self._solve_normals(self._normals(deflections or {}), alpha_deg, beta_deg, speed, rho)
+
+    def _solve_normals(self, n, alpha_deg: float, beta_deg: float, speed: float, rho: float) -> VLMResult:
         pan = self.pan
-        n = self._normals(deflections or {})
         vinf = self.freestream(alpha_deg, beta_deg, speed)
         AIC = np.einsum("ijk,ik->ij", self._V_cp, n)
         gamma = np.linalg.solve(AIC, -(n @ vinf))
@@ -259,3 +261,101 @@ class VLMModel:
             ls.append(lift / max(width, 1e-6))
         order = np.argsort(ys)
         return np.array(ys)[order], np.array(ls)[order]
+
+
+# ----------------------------------------------------------------------------- stall and viscous drag
+def section_clmax(tc: float, camber: float) -> float:
+    """2-D maximum lift of an aerofoil section (NACA data: 0012 ~1.55, 2412 ~1.7 at high Reynolds number)."""
+    return 0.95 + 5.0 * tc + 8.0 * camber
+
+
+def section_cl(alpha_eff: float, a0: float, clmax: float) -> float:
+    """2-D lift curve with stall: attached flow, rounded peak at clmax, then separated (flat-plate) flow."""
+    lin = a0 * alpha_eff
+    lim = clmax if lin >= 0 else 0.85 * clmax
+    s = 1.0 / (1.0 + math.exp(max(min((abs(lin) - 1.1 * lim) / (0.04 * lim), 40.0), -40.0)))
+    att = math.copysign(lim - 0.08 * lim * math.log1p(math.exp(-(abs(lin) - lim) / (0.08 * lim)))
+                        if abs(lin) > 0.7 * lim else abs(lin), lin)
+    return s * att + (1.0 - s) * 0.9 * math.sin(2.0 * alpha_eff)
+
+
+def skin_friction(re: float) -> float:
+    """Turbulent flat-plate skin friction (Schlichting)."""
+    return 0.455 / max(math.log10(max(re, 1e4)), 1.0) ** 2.58
+
+
+def _strip_info(model: "VLMModel"):
+    """Per-strip chord, width, thickness and camber (cached)."""
+    if getattr(model, "_strips", None) is not None:
+        return model._strips
+    pan, arr = model.pan, model.arr
+    info = {}
+    surf_by_key = {ps.key: ps for ps in arr.surfaces}
+    for sid in np.unique(pan.strip):
+        m = pan.strip == sid
+        key = pan.surface[int(np.nonzero(m)[0][0])]
+        ps = surf_by_key[key]
+        eta = float(np.mean(pan.eta[m]))
+        af = ps.surface.airfoil(eta)
+        chord = float(np.sum(pan.area[m]) / max(np.mean(np.linalg.norm(pan.b[m] - pan.a[m], axis=1)), 1e-6))
+        info[int(sid)] = {"mask": m, "chord": chord, "area": float(np.sum(pan.area[m])),
+                          "tc": float(getattr(af, "tc", 0.12)), "camber": float(getattr(af, "camber", 0.02)),
+                          "surface": key}
+    model._strips = info
+    return info
+
+
+def solve_with_stall(model: "VLMModel", alpha_deg: float, beta_deg: float = 0.0, deflections: dict | None = None,
+                     speed: float = 100.0, rho: float = 1.225, iters: int = 14) -> VLMResult:
+    """Non-linear VLM by strip decambering: each spanwise strip's lift is brought onto its aerofoil's
+    stalling lift curve by reducing that strip's effective camber, then the lattice is solved again.
+    Also adds profile (skin-friction + form) drag per strip.  extras: strip lift, stall flag, drag."""
+    strips = _strip_info(model)
+    a0 = 2 * math.pi * 0.95
+    decamber = {sid: 0.0 for sid in strips}
+    base_n = model._normals(deflections or {})
+    pan = model.pan
+    res = None
+    for _ in range(iters):
+        n = base_n.copy()
+        for sid, d in decamber.items():
+            if d:
+                m = strips[sid]["mask"]
+                n[m] = n[m] * math.cos(-d) + pan.chord_dir[m] * math.sin(-d)
+        n /= np.linalg.norm(n, axis=1, keepdims=True)
+        res = model._solve_normals(n, alpha_deg, beta_deg, speed, rho)
+        lift_dir = np.array([-res.vinf[2], 0.0, res.vinf[0]]) / speed
+        changed = 0.0
+        for sid, st in strips.items():
+            cl_vlm = float((res.forces[st["mask"]] @ lift_dir).sum() / (res.q * st["area"]))
+            alpha_eff = cl_vlm / a0 + decamber[sid]  # the angle this strip "wants" without decambering
+            clmax = section_clmax(st["tc"], st["camber"])
+            target = section_cl(alpha_eff, a0, clmax)
+            delta = 0.6 * (cl_vlm - target) / a0
+            decamber[sid] += delta
+            changed = max(changed, abs(delta))
+        if changed < 2e-4:
+            break
+    lift_dir = np.array([-res.vinf[2], 0.0, res.vinf[0]]) / speed
+    strip_cl, stalled, cd_prof = {}, {}, 0.0
+    for sid, st in strips.items():
+        cl = float((res.forces[st["mask"]] @ lift_dir).sum() / (res.q * st["area"]))
+        clmax = section_clmax(st["tc"], st["camber"])
+        alpha_eff = cl / a0 + decamber[sid]
+        strip_cl[sid] = cl
+        stalled[sid] = abs(alpha_eff) * a0 > 1.1 * clmax
+        re = rho * speed * st["chord"] / 1.81e-5
+        form = 1 + 2.0 * st["tc"] + 60 * st["tc"] ** 4
+        cd = 2 * skin_friction(re) * form * (1 + 0.3 * cl ** 2) + (1.6 * math.sin(alpha_eff) ** 2 if stalled[sid] else 0)
+        cd_prof += cd * st["area"]
+    res.extras.update({"strip_cl": strip_cl, "strip_stalled": stalled, "CD_profile": cd_prof / model.S,
+                       "decamber": decamber})
+    return res
+
+
+def lift_curve(model: "VLMModel", alphas=None, **kw):
+    """CL against angle of attack with stall: (alphas, CL, CLmax, stall angle)."""
+    alphas = np.arange(-6.0, 26.0, 2.0) if alphas is None else np.asarray(alphas)
+    cls = np.array([solve_with_stall(model, float(a), iters=10, **kw).CL for a in alphas])
+    k = int(np.argmax(cls))
+    return alphas, cls, float(cls[k]), float(alphas[k])

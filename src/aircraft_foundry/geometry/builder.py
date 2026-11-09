@@ -504,6 +504,14 @@ def build_control_surfaces(arr: Arrangement) -> list[Component]:
     return comps
 
 
+def _build_details(arr: Arrangement) -> list[Component]:
+    from .details import build_details
+    try:
+        return build_details(arr)
+    except Exception:  # details are cosmetic: never let them break a design
+        return []
+
+
 GENERATORS: list[Generator] = [
     Generator("fuselage", frozenset({"fuselage"}), build_fuselage),
     Generator("fuselage_structure", frozenset({"fuselage"}), build_fuselage_structure),
@@ -515,6 +523,7 @@ GENERATORS: list[Generator] = [
     Generator("engines", frozenset(ENGINE_GROUPS), build_engines),
     Generator("gear", frozenset(GEAR_GROUPS), build_gear),
     Generator("control_surfaces", frozenset(CONTROL_GROUPS), build_control_surfaces),
+    Generator("details", frozenset({"fuselage", "engines", "configuration"} | set(ENGINE_GROUPS)), _build_details),
 ]
 
 

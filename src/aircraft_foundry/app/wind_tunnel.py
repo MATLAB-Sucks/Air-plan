@@ -42,7 +42,7 @@ from ..core.evaluator import Evaluation  # noqa: E402
 from ..core.mission import MissionRequirements  # noqa: E402
 from ..geometry.arrangement import Arrangement  # noqa: E402
 from ..numerics.atmosphere import isa  # noqa: E402
-from ..numerics.vlm import VLMModel  # noqa: E402
+from ..numerics.vlm import VLMModel, lift_curve, solve_with_stall  # noqa: E402
 from ..rendering.scene import disable_vtk_key_shortcuts, mesh_to_polydata  # noqa: E402
 
 COLOUR_MODES = ("Lifting pressure (ΔCp)", "Structural stress at load factor", "Plain")
@@ -104,6 +104,50 @@ class LoadingPlot(QWidget):
         p.setPen(self.palette().text().color())
         p.drawText(6, 14, "Wing lift per metre of span — orange: this design, dashed: ideal elliptic")
         p.drawText(6, h - 4, f"left tip  ←  {semi / 1.04:.1f} m  →  right tip      peak {self.l.max() / 1000:.1f} kN/m")
+        p.end()
+
+
+class LiftCurvePlot(QWidget):
+    """CL against angle of attack, with stall (non-linear lattice), and the current angle."""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(140)
+        self.curve = None
+        self.alpha = 0.0
+
+    def set_curve(self, alphas, cls, clmax, a_stall):
+        self.curve = (np.asarray(alphas), np.asarray(cls), clmax, a_stall)
+        self.update()
+
+    def set_alpha(self, a):
+        self.alpha = a
+        self.update()
+
+    def paintEvent(self, _):
+        if self.curve is None:
+            return
+        al, cl, clmax, a_st = self.curve
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        p.fillRect(self.rect(), self.palette().base())
+        lo, hi = min(cl.min(), -0.2), max(cl.max(), 0.5) * 1.15
+
+        def px(a, c):
+            return QPointF(30 + (a - al[0]) / (al[-1] - al[0]) * (w - 40), h - 18 - (c - lo) / (hi - lo) * (h - 34))
+        p.setPen(QPen(QColor(150, 150, 150), 1, Qt.DashLine))
+        p.drawLine(px(al[0], 0), px(al[-1], 0))
+        p.setPen(QPen(QColor(60, 130, 210), 2))
+        for i in range(len(al) - 1):
+            p.drawLine(px(al[i], cl[i]), px(al[i + 1], cl[i + 1]))
+        p.setPen(QPen(QColor(230, 120, 40), 2))
+        a = float(np.clip(self.alpha, al[0], al[-1]))
+        p.drawLine(px(a, lo), px(a, hi))
+        p.setPen(self.palette().text().color())
+        p.drawText(6, 14, f"Lift curve with stall — CLmax {clmax:.2f} at {a_st:.0f}°  (orange: now)")
+        p.drawText(30, h - 4, f"{al[0]:.0f}°")
+        p.drawText(w - 40, h - 4, f"{al[-1]:.0f}°")
         p.end()
 
 
@@ -181,6 +225,10 @@ class WindTunnelWindow(QMainWindow):
         self.colour.currentIndexChanged.connect(lambda _: self._changed())
         form.addRow("Colour surfaces by", self.colour)
         slider("n", "Load factor (stress view)", -2, round(self.n_ult * 1.4, 1), 1.0, 0.1)
+        self.stall_box = QCheckBox("Stall model (aerofoil lift curves, per strip)")
+        self.stall_box.setChecked(True)
+        self.stall_box.toggled.connect(lambda _: self._changed())
+        form.addRow(self.stall_box)
         self.smoke = QCheckBox("Streamlines")
         self.smoke.setChecked(True)
         self.animate = QCheckBox("Animated smoke")
@@ -198,9 +246,17 @@ class WindTunnelWindow(QMainWindow):
         lay.addWidget(self.readout)
         self.plot = LoadingPlot()
         lay.addWidget(self.plot)
-        note = QLabel("Vortex-lattice method: inviscid, attached flow (no stall or separation), fixed flat wake; "
-                      "the fuselage moment uses the evaluator's statistical term. Stress colours scale the sized "
-                      "wing box's ultimate-load margins to the chosen load factor.")
+        self.curve_plot = LiftCurvePlot()
+        lay.addWidget(self.curve_plot)
+        try:  # coarse lattice for the whole curve: quick
+            coarse = VLMModel(self.arr, evaluation.metrics["x_cg_m"], n_chord=3, n_span=8)
+            self.curve_plot.set_curve(*lift_curve(coarse, speed=self.speed.value()))
+        except Exception:
+            pass
+        note = QLabel("Vortex-lattice method with strip-wise stall (each strip follows its aerofoil's lift curve, "
+                      "magenta = separated) and skin-friction / form drag; fixed flat wake; the fuselage moment uses "
+                      "the evaluator's statistical term. Stress colours scale the sized wing box's ultimate-load "
+                      "margins to the chosen load factor.")
         note.setWordWrap(True)
         note.setStyleSheet("color: palette(mid);")
         lay.addWidget(note)
@@ -293,7 +349,11 @@ class WindTunnelWindow(QMainWindow):
     def recompute(self):
         a, b = self.value("alpha"), self.value("beta")
         V, rho = self.speed.value(), self.density()
-        self.res = self.vlm.solve(a, b, self.deflections(), V, rho)
+        if self.stall_box.isChecked():
+            self.res = solve_with_stall(self.vlm, a, b, self.deflections(), V, rho)
+        else:
+            self.res = self.vlm.solve(a, b, self.deflections(), V, rho)
+        self.curve_plot.set_alpha(a)
         r_plus = self.vlm.solve(a + 1.0, b, self.deflections(), V, rho)
         cla = (r_plus.CL - self.res.CL) / math.radians(1.0)
         cma = (r_plus.Cm - self.res.Cm) / math.radians(1.0)
@@ -313,6 +373,7 @@ class WindTunnelWindow(QMainWindow):
             f"&nbsp; <b>CY</b> {self.res.CY:+.3f}<br>"
             f"Lift {lift_kn:,.0f} kN = {lift_kn / weight_kn:.2f} × take-off weight at {V:.0f} m/s<br>"
             f"Span efficiency e = {self.res.span_eff:.2f} &nbsp; Lift slope {cla:.2f} /rad<br>"
+            + self._stall_text() +
             f"Static margin: wind tunnel {sm_vlm:.0%} · evaluator {sm_ev:.0%} "
             f"{'(stable)' if sm_vlm > 0 else '<b style=color:#e0533d>(unstable)</b>'}<br>"
             + (f"<b style='color:#e0533d'>CL above the wing's CLmax ≈ {clmax:.2f}: a real wing would stall "
@@ -324,6 +385,21 @@ class WindTunnelWindow(QMainWindow):
         else:
             self._clear_streamlines()
         self.vtk_widget.GetRenderWindow().Render()
+
+    def _stall_text(self) -> str:
+        ex = self.res.extras
+        if "strip_stalled" not in ex:
+            return ""
+        cdp = ex.get("CD_profile", 0.0)
+        txt = f"Drag: induced {self.res.CDi:.4f} + profile {cdp:.4f} = <b>{self.res.CDi + cdp:.4f}</b><br>"
+        strips = self.vlm._strips
+        wing = [k for k, st in strips.items() if st["surface"] == "wing"]
+        etas = sorted(float(np.mean(self.vlm.pan.eta[strips[k]["mask"]])) for k in wing if ex["strip_stalled"][k])
+        if etas:
+            where = "near the tips" if etas[0] > 0.6 else ("at the root" if etas[-1] < 0.4 else "across the span")
+            txt += (f"<b style='color:#c0399a'>Wing stalled {where}</b> ({etas[0]:.0%}–{etas[-1]:.0%} of the "
+                    f"semi-span; magenta in the pressure view)<br>")
+        return txt
 
     def _station_utilisation(self) -> tuple[np.ndarray, np.ndarray]:
         w = self.ev.structure.wing if self.ev.structure is not None else None
@@ -356,6 +432,10 @@ class WindTunnelWindow(QMainWindow):
             elif mode == 0:
                 d, idx = self._tree.query(pts)
                 vals = np.where(d < 0.6 * self.vlm.c, np.abs(self.res.dCp[idx]), np.nan)
+                stalled = self.res.extras.get("strip_stalled")
+                if stalled:
+                    sep = np.array([stalled.get(int(sid), False) for sid in self.vlm.pan.strip])
+                    vals = np.where((d < 0.6 * self.vlm.c) & sep[idx], 1e9, vals)  # separated: magenta
                 top = max(float(np.nanpercentile(np.abs(self.res.dCp), 97)), 1e-6)
                 scal = np.nan_to_num(vals / top, nan=-1.0)
                 lut, rng = _lut("pressure"), (0.0, 1.0)
@@ -371,6 +451,9 @@ class WindTunnelWindow(QMainWindow):
             poly.GetPointData().SetScalars(arr)
             lut.SetBelowRangeColor(0.62, 0.64, 0.68, 1.0)
             lut.UseBelowRangeColorOn()
+            if mode == 0:
+                lut.SetAboveRangeColor(0.82, 0.22, 0.65, 1.0)  # stalled (separated) strips
+                lut.UseAboveRangeColorOn()
             mapper.SetLookupTable(lut)
             mapper.SetScalarRange(*rng)
             mapper.SetScalarModeToUsePointData()

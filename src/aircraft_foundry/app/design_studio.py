@@ -71,7 +71,8 @@ PART_NAMES = {"aircraft": "Whole aircraft", "wing": "Main wing", "htail": "Tailp
               "canard": "Canard", "fuselage": "Fuselage", "engines": "Engines", "gear": "Landing gear",
               "booms": "Booms"}
 PART_PROPS = {
-    "aircraft": [("structure.limit_load_factor", "G rating (limit)"), ("structure.safety_factor", "Safety factor"),
+    "aircraft": [("structure.limit_load_factor", "Max positive g (limit)"),
+                 ("structure.negative_load_factor", "Max negative g (limit)"), ("structure.safety_factor", "Safety factor"),
                  ("configuration.wing_position", "Wing height"), ("configuration.propulsion", "Engine type")],
     "wing": [("wing.span", "Span"), ("wing.root_chord", "Root chord"), ("wing.taper_ratio", "Taper"),
              ("wing.sweep_le_deg", "Sweep"), ("wing.dihedral_deg", "Dihedral"), ("wing.tc_root", "Thickness (root)"),
@@ -513,8 +514,10 @@ class DesignStudioWindow(QMainWindow):
         ev = self.verdict.evaluation if self.verdict and self.verdict.evaluation else None
         mass = (ev.weights.get(group, 0.0) if ev is not None and ev.converged else 0.0)
         if self.selected == "wing":
-            text = (f"Breaks at <b>{s_.limit_load_factor * s_.safety_factor * k:.1f} g</b> "
-                    f"(rated {s_.limit_load_factor:.1f} g × safety {s_.safety_factor:.2f} × reserve {k:.2f})")
+            neg = abs(getattr(s_, "negative_load_factor", -1.0))
+            text = (f"Breaks at <b>+{s_.limit_load_factor * s_.safety_factor * k:.1f} g</b> and "
+                    f"<b>−{neg * s_.safety_factor * k:.1f} g</b> (limits +{s_.limit_load_factor:.1f} / −{neg:.1f} g "
+                    f"× safety {s_.safety_factor:.2f} × reserve {k:.2f})")
         else:
             text = f"Designed for {s_.limit_load_factor * s_.safety_factor * k:.1f} g ultimate"
         if mass:

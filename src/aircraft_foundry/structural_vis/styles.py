@@ -24,11 +24,11 @@ class Layer(str, Enum):
 
 
 COLOURS: dict[CT, tuple[float, float, float]] = {
-    CT.FUSELAGE: (0.86, 0.88, 0.91),
-    CT.WING: (0.70, 0.76, 0.84),
-    CT.HORIZONTAL_TAIL: (0.70, 0.76, 0.84),
-    CT.VERTICAL_TAIL: (0.70, 0.76, 0.84),
-    CT.NACELLE: (0.46, 0.50, 0.56),
+    CT.FUSELAGE: (0.95, 0.96, 0.97),  # airline white
+    CT.WING: (0.78, 0.80, 0.84),
+    CT.HORIZONTAL_TAIL: (0.80, 0.82, 0.86),
+    CT.VERTICAL_TAIL: (0.11, 0.26, 0.55),  # livery: deep-blue fin
+    CT.NACELLE: (0.80, 0.81, 0.84),
     CT.PYLON: (0.55, 0.58, 0.62),
     CT.PROPELLER: (0.25, 0.27, 0.30),
     CT.GEAR_STRUT: (0.40, 0.42, 0.45),
@@ -38,10 +38,11 @@ COLOURS: dict[CT, tuple[float, float, float]] = {
     CT.FRAME: (0.25, 0.60, 0.85),
     CT.LONGERON: (0.30, 0.75, 0.55),
     CT.ATTACHMENT: (0.85, 0.20, 0.75),
+    CT.DETAIL: (0.07, 0.09, 0.13),  # tinted glass, dark intakes
     CT.AILERON: (0.38, 0.62, 0.92),
     CT.FLAP: (0.50, 0.72, 0.62),
     CT.ELEVATOR: (0.38, 0.62, 0.92),
-    CT.RUDDER: (0.38, 0.62, 0.92),
+    CT.RUDDER: (0.14, 0.30, 0.60),
     CT.ELEVON: (0.38, 0.62, 0.92),
     CT.RUDDERVATOR: (0.38, 0.62, 0.92),
     CT.DRAG_RUDDER: (0.55, 0.50, 0.85),
