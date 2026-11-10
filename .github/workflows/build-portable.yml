@@ -5,6 +5,11 @@ on:
   push:
     tags: ["v*"]
 
+# Re-pushing a tag cancels the older run instead of racing it to publish
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:
@@ -26,6 +31,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+          cache: pip                                    # re-use downloaded wheels between runs
+          cache-dependency-path: ${{ matrix.lock }}
+      - name: Cache PyInstaller's processed binaries (the slow part of a macOS build)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Application Support/pyinstaller
+            ~/AppData/Local/pyinstaller
+          key: pyinstaller-6.16.0-${{ runner.os }}-${{ hashFiles(matrix.lock) }}
+          restore-keys: pyinstaller-6.16.0-${{ runner.os }}-
       - name: Install (wheels only)
         run: |
           python -m pip install --upgrade pip
@@ -131,37 +146,22 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
-        with: { name: mac, path: mac-app.zip }
+        with: { name: mac, path: mac-app.zip, compression-level: 0 }   # already a zip
+
+      - name: Zip the Windows app (fast)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: 7z a -tzip -mx=3 AircraftFoundry-Windows.zip .\dist\AircraftFoundry | Out-Null
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
-        with: { name: windows, path: dist/AircraftFoundry }
+        with: { name: windows, path: AircraftFoundry-Windows.zip, compression-level: 0 }
 
   assemble:
+    # Builds the USB edition and (for version tags) publishes the release in the same job:
+    # it already has every file, so nothing is downloaded twice.
     needs: build
     runs-on: macos-15-intel   # macOS so the .app keeps its symlinks/permissions when re-zipped
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with: { python-version: "3.11" }
-      - uses: actions/download-artifact@v4
-        with: { name: mac, path: art-mac }
-      - uses: actions/download-artifact@v4
-        with: { name: windows, path: art-win/AircraftFoundry }
-      - name: Assemble USB layout
-        run: |
-          ditto -x -k art-mac/mac-app.zip art-mac/
-          python packaging/assemble_usb.py --windows art-win/AircraftFoundry --mac "art-mac/Aircraft Foundry.app" --out USB
-          ditto -c -k --keepParent USB AircraftFoundry-Portable.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: AircraftFoundry-Portable
-          path: AircraftFoundry-Portable.zip
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: assemble
-    runs-on: macos-15-intel   # ditto keeps the .app's symlinks and permissions
     permissions:
       contents: write
     steps:
@@ -169,17 +169,23 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: mac, path: art-mac }
       - uses: actions/download-artifact@v4
-        with: { name: windows, path: art-win/AircraftFoundry }
-      - uses: actions/download-artifact@v4
-        with: { name: AircraftFoundry-Portable, path: art-usb }
-      - name: Package release assets
+        with: { name: windows, path: art-win }
+      - name: Assemble USB layout
         run: |
+          ditto -x -k art-mac/mac-app.zip art-mac/
+          unzip -q art-win/AircraftFoundry-Windows.zip -d art-win/
+          python3 packaging/assemble_usb.py --windows art-win/AircraftFoundry --mac "art-mac/Aircraft Foundry.app" --out USB
           mkdir release
+          zip -1 -r -y -q release/AircraftFoundry-Portable.zip USB   # fast; -y keeps the .app's symlinks
           cp art-mac/mac-app.zip release/AircraftFoundry-macOS.zip
-          (cd art-win && ditto -c -k --keepParent AircraftFoundry ../release/AircraftFoundry-Windows.zip)
-          cp art-usb/AircraftFoundry-Portable.zip release/
+          cp art-win/AircraftFoundry-Windows.zip release/
+          cp install.ps1 install.sh release/   # release downloads can't be served stale by web caches
           (cd release && shasum -a 256 *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        with: { name: AircraftFoundry-Portable, path: release/AircraftFoundry-Portable.zip, compression-level: 0 }
       - name: Release notes from the changelog
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           python3 - <<'EOF'
           import re, os
@@ -188,9 +194,8 @@ jobs:
           m = re.search(r"^## " + re.escape(tag) + r".*?\n(.*?)(?=^## |\Z)", text, re.S | re.M)
           open("release-notes.md", "w").write(m.group(1).strip() if m else f"Aircraft Foundry {tag}")
           EOF
-      - name: Add the installers (release downloads can't be served stale by web caches)
-        run: cp install.ps1 install.sh release/
       - name: Publish the release (retries on GitHub network errors)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -211,7 +216,7 @@ jobs:
     # supported way (this computer / a drive / a folder; ready-to-run app / from source with a
     # self-contained Python), exactly as a user would - then self-tests the installed app.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: release
+    needs: assemble
     strategy:
       fail-fast: false
       matrix:

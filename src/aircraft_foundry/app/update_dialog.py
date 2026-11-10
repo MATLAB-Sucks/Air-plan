@@ -34,10 +34,43 @@ class _Worker(QObject):
         threading.Thread(target=go, daemon=True).start()
 
 
-def check_in_background(callback) -> None:
-    """Startup check (at most once a day, if enabled): callback(UpdateInfo | None)."""
+# ------------------------------------------------------------------ version notes
+def load_versions() -> list[dict]:
+    """This copy's version history (what each version does, and its known problems)."""
+    import json
+    from pathlib import Path
+    try:
+        return json.loads((Path(__file__).resolve().parents[1] / "versions.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def fetch_versions(version: str, repo: str) -> list[dict]:
+    """A newer release's own version notes (best effort; empty if unavailable)."""
+    import json
+    try:
+        url = f"https://raw.githubusercontent.com/{repo}/v{version}/src/aircraft_foundry/versions.json"
+        return json.loads(up._get(url, timeout=10).read().decode("utf-8"))
+    except Exception:
+        return []
+
+
+def version_html(entries: list[dict], heading: str = "") -> str:
+    out = [f"<h3>{heading}</h3>"] if heading else []
+    for v in entries:
+        tag = " <i>(not published)</i>" if v.get("unreleased") else ""
+        out.append(f"<h4>{v['version']}{tag} — {v.get('date', '')}</h4><b>{v.get('summary', '')}</b>")
+        out.append("<ul>" + "".join(f"<li>{c}</li>" for c in v.get("changes", [])) + "</ul>")
+        probs = v.get("problems", [])
+        out.append("<b>Known problems</b><ul>" + ("".join(f"<li>{p}</li>" for p in probs) or "<li>None known.</li>")
+                   + "</ul>")
+    return "".join(out)
+
+
+def check_in_background(callback, min_interval_s: float = 3600.0) -> None:
+    """Check at start-up and periodically (if enabled; at most once an hour): callback(UpdateInfo | None)."""
     cfg = update_settings()
-    if not cfg["auto"] or time.time() - cfg["last"] < 20 * 3600:
+    if not cfg["auto"] or time.time() - cfg["last"] < min_interval_s:
         return
     w = _Worker()
     w.finished.connect(lambda info, err: (app_settings().setValue("update/last_check", time.time()),

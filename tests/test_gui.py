@@ -557,3 +557,57 @@ def test_simulator_help_card(app):
     w._key_pressed(Qt.Key_F1)
     assert not w._help_label.isVisible()
     w.close()
+
+
+def test_studio_undo_redo(app):
+    from aircraft_foundry.app.design_studio import DesignStudioWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    for _ in range(5):
+        app.processEvents()
+    w._record_history()
+    span0 = w.params.wing.span
+    for v in (span0 + 1, span0 + 2, span0 + 3):  # a "drag": several edits ...
+        w.params.set("wing.span", v)
+        w.schedule_analysis()
+    w._hist_timer.stop()
+    w._record_history()  # ... recorded as one step
+    w.params.set("wing.sweep_le_deg", 10.0)
+    w._record_history()
+    w.undo()
+    assert w.params.wing.sweep_le_deg != 10.0 and w.params.wing.span == span0 + 3
+    w.undo()
+    assert w.params.wing.span == span0
+    w.redo()
+    w.redo()
+    assert w.params.wing.span == span0 + 3 and w.params.wing.sweep_le_deg == 10.0
+    w.close()
+
+
+def test_update_banner_whats_new_recent_and_screenshot(app, tmp_path, monkeypatch):
+    from aircraft_foundry import updater as up
+    from aircraft_foundry.app import update_dialog as ud
+    from aircraft_foundry.app.main_window import MainWindow
+    from aircraft_foundry.portable import DataLocation
+    from aircraft_foundry.core.project import Project
+    assert ud.load_versions() and ud.load_versions()[0]["problems"]  # the version notes ship with the app
+    monkeypatch.setattr(ud, "fetch_versions", lambda v, r: [{"version": v, "summary": "Gliders", "problems": ["x"]}])
+    w = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    w.show()
+    app.processEvents()
+    w._update_found(up.UpdateInfo("99.0.0", "notes", "https://example"))
+    assert w.update_banner.isVisible() and "99.0.0" in w.banner_label.text() and "1 known problem" in w.banner_label.text()
+    w.show_version_history()
+    assert "Known problems" in w._history_dialog.findChild(__import__("PySide6.QtWidgets", fromlist=["QTextBrowser"]).QTextBrowser).toHtml()
+    proj = tmp_path / "p.afproj"
+    Project(mission=w.project.mission).save(proj)
+    w._remember_recent(proj)
+    w._fill_recent_menu()
+    assert any(a.text() == "p.afproj" for a in w.recent_menu.actions())
+    shot = w.quick_screenshot(tmp_path / "pics")
+    assert __import__("pathlib").Path(shot).exists()
+    w.dirty = False
+    w.close()

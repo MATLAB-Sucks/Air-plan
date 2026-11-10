@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0
+- **Update banner:** the app checks at every start and every 4 hours, and shows a banner with the new
+  version's summary and number of known problems (What's new & update / Update now / Later).
+- **Version history:** `VERSIONS.md` and Help → Version history list what every version does and its
+  known problems; What's new is shown once after updating.
+- **Undo / redo** in the design studio (Ctrl+Z / Ctrl+Y; a whole drag is one step).
+- **File → Open recent** and **View → Quick screenshot** (Ctrl+Shift+P).
+- **Faster builds:** cached wheels and PyInstaller binaries, the release is published from the assemble
+  job (no second download), fast zipping, superseded runs cancelled.
+
 ## 0.11.1
 - **Fixed: the glider's tail broke at the start of a winch launch or aerotow.** Gliders now have a
   proper never-exceed speed (about 270-280 km/h; it was wrongly derived from the best-glide speed).

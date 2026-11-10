@@ -380,6 +380,21 @@ class DesignStudioWindow(QMainWindow):
         self.fly_btn.setObjectName("primary")
         self.wt_btn = QPushButton("🌬 Wind tunnel")
         self.add_btn = QPushButton("Save as new plane")
+        from PySide6.QtGui import QKeySequence, QShortcut
+        self.undo_btn = QPushButton("↶ Undo")
+        self.redo_btn = QPushButton("↷ Redo")
+        self.undo_btn.setToolTip("Undo (Ctrl+Z)")
+        self.redo_btn.setToolTip("Redo (Ctrl+Y / Ctrl+Shift+Z)")
+        self.undo_btn.clicked.connect(self.undo)
+        self.redo_btn.clicked.connect(self.redo)
+        self._undo_row = QHBoxLayout()
+        self._undo_row.addWidget(self.undo_btn)
+        self._undo_row.addWidget(self.redo_btn)
+        for seq, fn in (("Ctrl+Z", self.undo), ("Ctrl+Y", self.redo), ("Ctrl+Shift+Z", self.redo)):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(fn)
+        QTimer.singleShot(0, self._record_history)  # the starting point
         self.apply_btn = QPushButton("Apply to selected plane")
         self.apply_btn.setObjectName("primary")
         self.apply_btn.clicked.connect(lambda: self.apply_to_selected.emit(self.params.copy()))
@@ -388,6 +403,7 @@ class DesignStudioWindow(QMainWindow):
         self.add_btn.clicked.connect(lambda: self.send_to_project.emit(self.params.copy()))
         for b_ in (self.fly_btn, self.wt_btn, self.add_btn):
             row.addWidget(b_)
+        vl.addLayout(self._undo_row)
         vl.addWidget(self.apply_btn)
         self.balance_btn = QPushButton("⚖ Balance (move the wing for stability)")
         self.balance_btn.setToolTip("Moves the wing so the centre of gravity sits a healthy distance ahead of the "
@@ -1116,7 +1132,65 @@ class DesignStudioWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self.rebuild_editors(fit=False))
         self.schedule_analysis(50)
 
+    # ------------------------------------------------------------ undo / redo
+    def _snapshot(self):
+        import json
+        return json.dumps(self.params.to_dict(), sort_keys=True, default=str)
+
+    def _record_history(self) -> None:
+        """Called (debounced) after changes: one undo step per burst of edits, e.g. a whole drag."""
+        if getattr(self, "_restoring", False):
+            return
+        snap = self._snapshot()
+        hist = self.__dict__.setdefault("_history", [])
+        pos = getattr(self, "_hist_pos", -1)
+        if hist and pos >= 0 and hist[pos] == snap:
+            return
+        del hist[pos + 1:]
+        hist.append(snap)
+        if len(hist) > 200:
+            del hist[0]
+        self._hist_pos = len(hist) - 1
+        self._update_undo_buttons()
+
+    def _restore(self, snap: str) -> None:
+        import json
+        from ..core.parameters import AircraftParameters
+        self._restoring = True
+        try:
+            self.params = AircraftParameters.from_dict(json.loads(snap))
+            self.rebuild_editors()
+            self.schedule_analysis()
+            if hasattr(self, "_build_properties"):
+                self._build_properties()
+        finally:
+            self._restoring = False
+        self._update_undo_buttons()
+
+    def undo(self) -> None:
+        if getattr(self, "_hist_pos", 0) > 0:
+            self._hist_pos -= 1
+            self._restore(self._history[self._hist_pos])
+
+    def redo(self) -> None:
+        hist = getattr(self, "_history", [])
+        if getattr(self, "_hist_pos", -1) < len(hist) - 1:
+            self._hist_pos += 1
+            self._restore(hist[self._hist_pos])
+
+    def _update_undo_buttons(self) -> None:
+        if hasattr(self, "undo_btn"):
+            self.undo_btn.setEnabled(getattr(self, "_hist_pos", 0) > 0)
+            self.redo_btn.setEnabled(getattr(self, "_hist_pos", -1) < len(getattr(self, "_history", [])) - 1)
+
     def schedule_analysis(self, ms: int = 250):
+        if not getattr(self, "_restoring", False):
+            from PySide6.QtCore import QTimer as _QT
+            if not hasattr(self, "_hist_timer"):
+                self._hist_timer = _QT(self)
+                self._hist_timer.setSingleShot(True)
+                self._hist_timer.timeout.connect(self._record_history)
+            self._hist_timer.start(400)
         self._update_timer.start(ms)
         self._update_apply_button()  # the Apply button reacts at once; the verdict follows shortly
 

@@ -155,6 +155,11 @@ class MainWindow(QMainWindow):
                 _QT.singleShot(800, self.recover_autosave)
             from .update_dialog import check_in_background
             check_in_background(self._update_found)
+            self._update_timer = _QT(self)  # and every four hours while the app is open
+            self._update_timer.timeout.connect(lambda: check_in_background(self._update_found))
+            self._update_timer.start(4 * 3600 * 1000)
+            if getattr(self, "_is_main_app", False):
+                _QT.singleShot(1500, self._whats_new_once)
 
     # ------------------------------------------------------------ game controller in the main window
     def _pad_ui(self, st) -> None:
@@ -212,6 +217,80 @@ class MainWindow(QMainWindow):
             self.update_btn.setText(f"⬆ Update available ({info.version})")
             self.update_btn.setObjectName("primary")
             self.update_btn.setStyleSheet(self.update_btn.styleSheet())
+            self._show_update_banner(info)
+
+    # ------------------------------------------------------------ update banner, what's new, history
+    def _build_update_banner(self) -> None:
+        from PySide6.QtWidgets import QHBoxLayout, QToolBar, QWidget
+        bar = QToolBar("Update")
+        bar.setObjectName("updateBanner")
+        bar.setMovable(False)
+        bar.setFloatable(False)
+        box = QWidget()
+        lay = QHBoxLayout(box)
+        lay.setContentsMargins(10, 4, 10, 4)
+        self.banner_label = QLabel()
+        self.banner_label.setWordWrap(True)
+        lay.addWidget(self.banner_label, 1)
+        b_new = QPushButton("What's new && update…")
+        b_new.clicked.connect(self.check_updates)
+        b_now = QPushButton("Update now")
+        b_now.setObjectName("primary")
+        b_now.clicked.connect(self.check_updates)
+        b_later = QPushButton("Later")
+        b_later.clicked.connect(lambda: bar.hide())
+        for b in (b_new, b_now, b_later):
+            lay.addWidget(b)
+        bar.addWidget(box)
+        bar.setStyleSheet("QToolBar#updateBanner { background: #2b6cb0; } "
+                          "QToolBar#updateBanner QLabel { color: white; }")
+        self.addToolBarBreak(Qt.TopToolBarArea)
+        self.addToolBar(Qt.TopToolBarArea, bar)
+        bar.hide()
+        self.update_banner = bar
+
+    def _show_update_banner(self, info) -> None:
+        if not hasattr(self, "update_banner"):
+            self._build_update_banner()
+        from .. import __version__
+        from .update_dialog import fetch_versions, update_settings
+        entry = next((v for v in fetch_versions(info.version, update_settings()["repo"])
+                      if v.get("version") == info.version), None)
+        summary = entry.get("summary", "") if entry else ""
+        probs = len(entry.get("problems", [])) if entry else 0
+        self.banner_label.setText(
+            f"<b>Aircraft Foundry {info.version} is available</b> (you have {__version__})"
+            + (f" — {summary}" if summary else "")
+            + (f" · {probs} known problem{'s' if probs != 1 else ''} listed in What's new" if entry else ""))
+        self.update_banner.show()
+
+    def show_version_history(self, only_current: bool = False) -> None:
+        from PySide6.QtWidgets import QDialog, QTextBrowser, QVBoxLayout
+        from .. import __version__
+        from .update_dialog import load_versions, version_html
+        entries = load_versions()
+        if only_current:
+            entries = [v for v in entries if v.get("version") == __version__]
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"What's new in {__version__}" if only_current else "Version history")
+        dlg.resize(640, 560)
+        lay = QVBoxLayout(dlg)
+        view = QTextBrowser()
+        view.setHtml(version_html(entries, f"What's new in Aircraft Foundry {__version__}" if only_current else
+                                  "What each version does, and its known problems"))
+        lay.addWidget(view)
+        self._history_dialog = dlg
+        dlg.show()
+
+    def _whats_new_once(self) -> None:
+        """The first start of a new version shows what changed (and its known problems) once."""
+        from .. import __version__
+        s_ = app_settings()
+        if s_.value("whats_new/seen") != __version__:
+            s_.setValue("whats_new/seen", __version__)
+            if s_.value("whats_new/ever"):  # not on the very first install
+                self.show_version_history(only_current=True)
+            s_.setValue("whats_new/ever", "1")
 
     def check_updates(self):
         from .update_dialog import UpdateDialog
@@ -497,6 +576,8 @@ class MainWindow(QMainWindow):
         fm = self.menuBar().addMenu("&File")
         act(fm, "New project", self.new_project, QKeySequence.New)
         act(fm, "Open project…", self.open_project, QKeySequence.Open)
+        self.recent_menu = fm.addMenu("Open recent")
+        self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         act(fm, "Save project", self.save_project, QKeySequence.Save)
         act(fm, "Save project as…", lambda: self.save_project(as_new=True), QKeySequence.SaveAs)
         fm.addSeparator()
@@ -518,10 +599,12 @@ class MainWindow(QMainWindow):
         vm.addAction(self.left_toggle)
         vm.addAction(self.right_toggle)
         vm.addAction(self.fullscreen_action)
+        vm.addAction("Quick screenshot (whole window, to Pictures)", self.quick_screenshot, QKeySequence("Ctrl+Shift+P"))
         vm.addSeparator()
         for name in ("iso", "front", "side", "top", "rear"):
             act(vm, f"{name.title()} view", lambda _=False, n=name: self.viewport.view(n))
         hm = self.menuBar().addMenu("&Help")
+        hm.addAction("Version history and known problems…", self.show_version_history)
         act(hm, "Check for updates…", self.check_updates)
         act(hm, "About Aircraft Foundry", self.about)
 
@@ -889,8 +972,52 @@ class MainWindow(QMainWindow):
         if path:
             try:
                 self._load_project(Project.load(path))
+                self._remember_recent(path)
             except Exception as exc:
                 QMessageBox.critical(self, "Open project", str(exc))
+
+    # ------------------------------------------------------------ recent projects, screenshots
+    def _remember_recent(self, path) -> None:
+        if not path:
+            return
+        s_ = app_settings()
+        items = [str(path)] + [p for p in (s_.value("recent_projects") or []) if p != str(path)]
+        s_.setValue("recent_projects", items[:8])
+
+    def _fill_recent_menu(self) -> None:
+        from pathlib import Path
+        self.recent_menu.clear()
+        items = [p for p in (app_settings().value("recent_projects") or []) if Path(p).exists()]
+        if not items:
+            self.recent_menu.addAction("(no recent projects)").setEnabled(False)
+        for p in items:
+            self.recent_menu.addAction(Path(p).name, lambda p=p: self.open_recent(p)).setToolTip(p)
+
+    def open_recent(self, path: str) -> None:
+        if not self._confirm_discard():
+            return
+        try:
+            self._load_project(Project.load(path))
+            self._remember_recent(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Open project", str(exc))
+
+    def quick_screenshot(self, folder=None) -> str:
+        """Save what is on screen (3-D views and the simulator included) to the Pictures folder."""
+        from datetime import datetime
+        from pathlib import Path
+        from PySide6.QtCore import QStandardPaths
+        from PySide6.QtGui import QGuiApplication
+        pics = Path(folder or QStandardPaths.writableLocation(QStandardPaths.PicturesLocation) or Path.home())
+        pics.mkdir(parents=True, exist_ok=True)
+        path = pics / f"Aircraft Foundry {datetime.now():%Y-%m-%d %H.%M.%S}.png"
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        img = screen.grabWindow(self.winId())
+        if img.isNull():
+            img = self.grab()
+        img.save(str(path))
+        self.statusBar().showMessage(f"Screenshot saved: {path}", 8000)
+        return str(path)
 
     def _load_project(self, project: Project):
         self.project = project
@@ -967,6 +1094,7 @@ class MainWindow(QMainWindow):
         self.project.mission = self.mission_panel.mission()
         try:
             saved = self.project.save()
+            self._remember_recent(saved)
         except OSError as exc:
             QMessageBox.critical(self, "Save project", str(exc))
             return False
