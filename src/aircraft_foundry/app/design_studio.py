@@ -37,7 +37,8 @@ SPECS = dict(P.parameter_specs() if callable(P.parameter_specs) else P.parameter
 
 LAYOUTS = [("Conventional", "conventional"), ("Canard", "canard"), ("Flying wing", "flying_wing"),
            ("Blended wing body", "blended_wing_body"), ("Twin boom", "twin_boom"),
-           ("Supersonic delta", "supersonic_delta"), ("Stunt plane (aerobatic)", "aerobatic")]
+           ("Supersonic delta", "supersonic_delta"), ("Stunt plane (aerobatic)", "aerobatic"),
+           ("Glider (sailplane)", "glider")]
 
 
 def clamp(name: str, value: float) -> float:
@@ -66,6 +67,7 @@ PARTS = [  # (kind, label, tooltip)
     ("booms", "‖ Twin booms", "Booms from the wing carry the tail"),
     ("flying_wing", "◆ Flying-wing kit", "Remove fuselage and tail: an all-wing aircraft"),
     ("bwb", "◆ Blended body kit", "Lifting centre-body blended into the wing"),
+    ("glider", "🪁 Glider kit", "No engine, long slender wing: a sailplane"),
 ]
 PART_NAMES = {"aircraft": "Whole aircraft", "wing": "Main wing", "htail": "Tailplane", "vtail": "Fin",
               "canard": "Canard", "fuselage": "Fuselage", "engines": "Engines", "gear": "Landing gear",
@@ -78,6 +80,7 @@ PART_PROPS = {
              ("wing.sweep_le_deg", "Sweep"), ("wing.dihedral_deg", "Dihedral"), ("wing.tc_root", "Thickness (root)"),
              ("wing.tc_tip", "Thickness (tip)"), ("wing.camber", "Camber (0 = symmetric)"),
              ("wing.twist_tip_deg", "Tip twist"), ("wing.x_position", "Position along fuselage"),
+             ("wing.vertical_shift", "Height on the fuselage (fine)"),
              ("controls.aileron_start", "Aileron inner edge"), ("controls.aileron_end", "Aileron outer edge"),
              ("controls.aileron_chord", "Aileron chord"), ("controls.flap_end", "Flap span (0 = none)"),
              ("controls.flap_chord", "Flap chord")],
@@ -94,6 +97,7 @@ PART_PROPS = {
                  ("fuselage.tail_fraction", "Tail cone (fraction)"), ("fuselage.nose_profile", "Nose shape")],
     "engines": [("engines.count", "Number of engines"), ("engines.thrust_kn", "Thrust each"),
                 ("engines.bypass_ratio", "Bypass ratio (jets)"), ("engines.span_fraction", "Position along the wing"),
+                ("engines.x_shift", "Moved forward (−) / aft (+)"), ("engines.spacing_fraction", "Outer pair offset"),
                 ("configuration.engine_layout", "Mounting")],
     "gear": [("gear.wheel_diameter", "Wheel diameter"), ("gear.wheels_per_leg", "Wheels per leg"),
              ("gear.track", "Track"), ("gear.ground_clearance", "Ground clearance")],
@@ -422,7 +426,7 @@ class DesignStudioWindow(QMainWindow):
             out.append("canard")
         if arr.layout == "twin_boom":
             out.append("booms")
-        out += ["engines", "gear"]
+        out += (["gear"] if self.params.configuration.propulsion == "none" else ["engines", "gear"])
         return out
 
     def _fill_part_list(self):
@@ -558,7 +562,7 @@ class DesignStudioWindow(QMainWindow):
                 nodes = [(QPointF(L, 0.0), ("pusher",))]
             elif kind == "booms":
                 nodes = [(QPointF(wing_pt(e, s_)[0], wing_pt(e, s_)[1]), ("booms", e)) for e in (0.25, 0.32) for s_ in (1, -1)]
-            elif kind in ("flying_wing", "bwb"):
+            elif kind in ("flying_wing", "bwb", "glider"):
                 nodes = [(QPointF(0.45 * L, 0.0), (kind,))]
         else:
             x_w = float(wing_pt(0.0, 1, 0.3)[0])
@@ -626,6 +630,9 @@ class DesignStudioWindow(QMainWindow):
         elif kind == "booms":
             self.set_layout("twin_boom")
             msg = "Twin booms carry the tail."
+        elif kind == "glider":
+            self.set_layout("glider")
+            msg = "Glider: no engine, an 18 m slender wing and a T-tail."
         elif kind in ("flying_wing", "bwb"):
             self.set_layout("flying_wing" if kind == "flying_wing" else "blended_wing_body")
             msg = "All-wing aircraft." if kind == "flying_wing" else "Blended wing body."
@@ -722,6 +729,15 @@ class DesignStudioWindow(QMainWindow):
     def set_layout(self, layout: str):
         """A new layout re-sizes a starting design for it (keeping the engine and wing choices where valid)."""
         from ..core import synthesis as S
+        if layout == "glider":
+            self.mission = S.glider_mission()
+            self.params = S.baseline(self.mission, S.configurations_for(self.mission)[0])
+            self.rebuild_editors(fit=True)
+            self.schedule_analysis()
+            QTimer.singleShot(0, self._refresh_panel)
+            return
+        if getattr(self.mission, "category", "transport") == "glider":
+            self.mission = MissionRequirements()
         if layout == "aerobatic":
             # a stunt plane needs a stunt-plane mission: +-10 g, roll rate, symmetric wing, light-aircraft rules
             self.mission = S.aerobatic_mission()
@@ -962,13 +978,17 @@ class DesignStudioWindow(QMainWindow):
             e = wing_eng[0]
             semi = arr.wing.semi_span
 
-            def eng(pos, x0=float(e.inlet[0])):
+            base_x = float(e.inlet[0]) - float(self.params.engines.x_shift)
+
+            def eng(pos, base_x=base_x):  # drag along the span AND fore / aft
                 f = clamp("engines.span_fraction", pos.y() / semi)
+                dx = clamp("engines.x_shift", pos.x() - base_x)
                 self.params.set("engines.span_fraction", f)
+                self.params.set("engines.x_shift", dx)
                 self._live()
-                return QPointF(x0, f * semi)
+                return QPointF(base_x + dx, f * semi)
             sc.addItem(Handle(QPointF(e.inlet[0], e.inlet[1]), eng, self._released, "circle", QColor(200, 200, 200),
-                              "Slide the engines along the wing"))
+                              "Drag the engines along the wing, or forward / aft"))
         # ailerons and flaps (right wing)
         if self.selected != "wing":
             return

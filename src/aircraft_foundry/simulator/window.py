@@ -108,6 +108,9 @@ class SimulatorWindow(QMainWindow):
         from ..app.settings import settings as _settings
         self.terrain = load_world(_settings().value("sim/world") or None)
         self.sim = FlightSimulator(self.model, self.terrain)
+        self._vario = []
+        if self.model.glider:  # soaring: thermals around the home airfield
+            self.sim.make_thermals(self.terrain.home.point(self.terrain.home.length / 2))
         self.trail: list[tuple[float, float]] = []
         self.coach = CircuitCoach(self)
         self.ap = Autopilot(self.sim, self.vref_for_mass(), climb_speed=1.6 * self.vref_for_mass(),
@@ -243,6 +246,25 @@ class SimulatorWindow(QMainWindow):
             attr.setWordWrap(True)
             attr.setObjectName("hint")
             fl.addWidget(attr)
+        if self.model.glider:
+            gbox = QGroupBox("Glider")
+            gl_ = QFormLayout(gbox)
+            self.launch_box = QComboBox()
+            self.launch_box.addItems(["Winch launch (to ~400 m)", "Aerotow (to ~600 m)"])
+            b_launch = QPushButton("Launch  (L)")
+            b_launch.setObjectName("primary")
+            b_launch.clicked.connect(lambda: self._key_pressed(Qt.Key_L))
+            self.show_thermals = QCheckBox("Show thermals on the map (learning aid)")
+            self.show_thermals.setChecked(True)
+            gl_.addRow("Launch", self.launch_box)
+            gl_.addRow(b_launch)
+            gl_.addRow(self.show_thermals)
+            tips = QLabel("Release with L at the top. Look for lift on the variometer, then circle tightly "
+                          "(30–45° bank) to stay in it. F works the airbrakes for landing.")
+            tips.setWordWrap(True)
+            tips.setObjectName("hint")
+            gl_.addRow(tips)
+            fl.addWidget(gbox)
         b_log = QPushButton("Export flight log (CSV)…")
         b_log.clicked.connect(self.export_log)
         fl.addWidget(b_log)
@@ -562,6 +584,11 @@ class SimulatorWindow(QMainWindow):
             self.sas_box.setChecked(not self.sas_box.isChecked())
         elif key == Qt.Key_C:
             self.cam_box.setCurrentIndex((CAMERAS.index(self.camera_mode) + 1) % len(CAMERAS))
+        elif key == Qt.Key_L and self.model.glider:
+            if self.sim.launch is not None:
+                self.sim.release("released by the pilot")
+            else:
+                self.sim.start_launch("aerotow" if self.launch_box.currentIndex() == 1 else "winch")
         elif key == Qt.Key_P:
             self.paused = not self.paused
         elif key == Qt.Key_R:
@@ -1058,9 +1085,16 @@ class SimulatorWindow(QMainWindow):
                          f"{'HIGH' if gs > 15 else 'LOW ' if gs < -15 else 'ON  '}{gs:+5.0f} m  LOC {r:+5.0f} m "
                          f"{'(fly left)' if r > 10 else '(fly right)' if r < -10 else ''}")
         endurance = f"{t['fuel_kg'] / t['fuel_flow_kgh'] * 60:5.0f}" if t["fuel_flow_kgh"] > 5 else "    —"
-        lines.append(f"FUEL {t['fuel_kg']:7.0f} kg  FLOW {t['fuel_flow_kgh']:6.0f} kg/h  "
+        if self.model.glider:
+            self._vario = (self._vario + [t["vs"]])[-300:]
+            avg = sum(self._vario) / len(self._vario)
+            lines.append(f"VARIO {t['vs']:+5.1f} m/s   AVERAGE {avg:+5.1f} m/s   "
+                         f"{'▲ LIFT' if t['vs'] > 0.3 else ('▼ SINK' if t['vs'] < -1.5 else '')}"
+                         + (f"   {t['launch'].upper()} LAUNCH" if t["launch"] else ""))
+        if not self.model.glider:
+            lines.append(f"FUEL {t['fuel_kg']:7.0f} kg  FLOW {t['fuel_flow_kgh']:6.0f} kg/h  "
                      f"ENDUR {endurance} min  "
-                     f"DIST {t['distance_km']:6.1f} km")
+                         f"DIST {t['distance_km']:6.1f} km")
         if not t["on_ground"]:
             self.g_max, self.g_min = max(self.g_max, t["load_factor"]), min(self.g_min, t["load_factor"])
         lines.append(f"G  now {t['load_factor']:+5.1f}  max {self.g_max:+5.1f}  min {self.g_min:+5.1f}  "
@@ -1088,9 +1122,9 @@ class SimulatorWindow(QMainWindow):
                 warn.append("OVERSPEED")
             if not self.sim.failure and t["stress"] > 1 / max(self.model.n_ultimate / self.model.n_limit, 1.0):
                 warn.append(f"OVERSTRESS — {t['load_factor']:.1f} g (limit {self.model.n_limit:.1f} g)")
-            if t["fuel_kg"] <= 0:
+            if t["fuel_kg"] <= 0 and not self.model.glider:
                 warn.append("FUEL EXHAUSTED — ENGINES OUT")
-            elif t["fuel_kg"] < 0.1 * self.model.fuel_capacity_kg:
+            elif t["fuel_kg"] < 0.1 * self.model.fuel_capacity_kg and not self.model.glider:
                 warn.append("LOW FUEL")
             agl = self.sim.height_above_ground()
             if not t["on_ground"] and agl < 300 and t["vs"] < -2 and not c.gear_down:
@@ -1200,6 +1234,14 @@ class MiniMap(QWidget):
                 c = self._to_px(wp.north, wp.east)
                 p.drawEllipse(c, 4, 4)
                 p.drawText(c + QPointF(6, 4), wp.name)
+        if getattr(self.win, "show_thermals", None) is not None and self.win.show_thermals.isChecked():
+            drift = self.win.sim.wind_ned[:2] * self.win.sim.time
+            for tn, te, r, core, top in self.win.sim.thermals:
+                c_ = self._to_px(tn + drift[0], te + drift[1])
+                rr = max(r * self._scale(), 3)
+                p.setPen(QPen(QColor(60, 200, 90, 220), 1.5))
+                p.setBrush(QBrush(QColor(60, 200, 90, int(40 + 25 * core))))
+                p.drawEllipse(c_, rr, rr)
         if len(self.win.trail) > 1:
             p.setPen(QPen(QColor(255, 220, 60), 1.5))
             pts = [self._to_px(n, e) for n, e in self.win.trail]

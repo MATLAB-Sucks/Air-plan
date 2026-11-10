@@ -312,6 +312,7 @@ class Arrangement:
         xm = min(x + 0.5 * w.root_chord, fus.length)
         hh = float(fus.half_height(xm))
         frac = {"low": -0.72, "mid": 0.0, "high": 0.80}[self.params.configuration.wing_position]
+        frac = float(np.clip(frac + getattr(self.params.wing, "vertical_shift", 0.0), -0.9, 0.95))
         if self.has_pod:
             frac = -0.15  # crew pod / cockpit fairing sits on top of the centre section
         z = float(fus.centre_z(xm)) + frac * hh
@@ -592,6 +593,19 @@ class Arrangement:
     # ------------------------------------------------------------ engines
     @cached_property
     def engines(self) -> list[EngineInstance]:
+        """Engine instances; none for a glider; all moved fore / aft by engines.x_shift."""
+        if self.params.configuration.propulsion == "none":
+            return []
+        dx = float(getattr(self.params.engines, "x_shift", 0.0))
+        out = self._engines_placed()
+        if dx:
+            import dataclasses
+            out = [dataclasses.replace(e, inlet=e.inlet + np.array([dx, 0.0, 0.0]),
+                                       attach=e.attach + (np.array([dx, 0.0, 0.0]) if e.mount != "wing" else 0.0))
+                   for e in out]
+        return out
+
+    def _engines_placed(self) -> list[EngineInstance]:
         cfg, e = self.params.configuration, self.params.engines
         dims = engine_dimensions(e.thrust_kn, cfg.propulsion, e.bypass_ratio)
         d, length, dp = dims["diameter"], dims["length"], dims["prop_diameter"]

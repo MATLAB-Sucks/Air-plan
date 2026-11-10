@@ -32,7 +32,7 @@ class MissionRequirements:
     passenger_mass_kg: float = p(100.0, 70.0, 130.0, "kg", "Mass per passenger incl. bags")
     seat_pitch_m: float = p(0.79, 0.7, 1.0, "m", "Seat pitch")
     # "aerobatic" = stunt plane: +-10 g, roll-rate and power requirements, symmetric wing, light-aircraft rules
-    category: str = choice("transport", ("transport", "aerobatic"), "Aircraft category")
+    category: str = choice("transport", ("transport", "aerobatic", "glider"), "Aircraft category")
     ignore: str = ""  # comma-separated REQUIREMENTS keys the design should not be sized around
     notes: str = field(default="")
 
@@ -44,8 +44,8 @@ class MissionRequirements:
     @property
     def seats_abreast(self) -> int:
         n = self.passengers
-        if getattr(self, "category", "transport") == "aerobatic":
-            return 1  # tandem cockpit (Extra 300 / Pitts style)
+        if getattr(self, "category", "transport") in ("aerobatic", "glider"):
+            return 1  # tandem cockpit (Extra 300 / Pitts style, sailplanes)
         if n <= 2:
             return n
         abreast = int(min(9, max(2, round(0.45 * math.sqrt(n)))))
@@ -150,6 +150,8 @@ REQUIREMENTS: list[tuple[str, str, tuple[str, ...]]] = [
     ("cabin_noise", "Cabin noise", ("Cabin noise",)),
     ("boom", "Sonic boom over land", ("Sonic boom overland",)),
     ("g_rating", "G rating", ("G rating",)),
+    ("glider", "Glider performance (glide ratio, sink rate, stall speed)", (
+        "Best glide ratio", "Minimum sink rate", "Stall speed")),
     ("aerobatic", "Aerobatic performance (roll rate, power, inverted)", (
         "Roll rate at manoeuvring speed", "Static thrust / weight", "Symmetric aerofoil (inverted flight)")),
 ]

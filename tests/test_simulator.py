@@ -457,3 +457,83 @@ def test_world_catalogue_and_fallbacks(tmp_path, monkeypatch):
     shutil.copytree(src, tmp_path / "queenstown-40-high" / "world")
     assert W.world_folder("queenstown-40-high") is not None
     assert any(k == "queenstown-40-high" for k, _ in W.available_worlds())
+
+
+def _glider():
+    from aircraft_foundry.core.synthesis import configurations_for, glider_mission
+    m = glider_mission()
+    p = baseline(m, configurations_for(m)[0])
+    ev = evaluate(p, m)
+    return p, m, ev
+
+
+def test_glider_sizes_like_an_18m_sailplane():
+    from aircraft_foundry.core.verdict import flight_verdict
+    from aircraft_foundry.geometry.arrangement import Arrangement
+    p, m, ev = _glider()
+    M = ev.metrics
+    assert ev.feasible and not Arrangement(p).engines and p.configuration.propulsion == "none"
+    assert 30 < M["best_ld"] < 55 and 0.4 < M["min_sink_ms"] < 0.75  # 18 m class: ~40-50 : 1, ~0.5 m/s
+    assert 200 < M["empty_kg"] < 350 and M["stall_speed_ms"] < 22.5
+    assert flight_verdict(p, m, ev).flies
+
+
+def test_glider_glides_launches_and_climbs_in_thermals():
+    from aircraft_foundry.simulator.world import load_world
+    p, m, ev = _glider()
+    md = build_aero_model(p, m, ev)
+    assert md.glider and md.thrust_sl == 0
+    W = load_world("lasham-40-standard")
+    sim = FlightSimulator(md, W)
+    sim.start_in_flight(ev.metrics["v_best_glide_ms"], 1000)
+    for _ in range(100 * 60):
+        sim.step(1 / 100)
+    t = sim.telemetry()
+    glide = t["distance_km"] * 1000 / (1000 - t["altitude"])
+    assert glide == pytest.approx(ev.metrics["best_ld"], rel=0.15)  # flies its glide ratio
+    for kind, want in (("winch", 250), ("aerotow", 550)):
+        sim = FlightSimulator(md, W)
+        sim.place_on_runway()
+        for _ in range(200):
+            sim.step(1 / 100)
+        assert sim.start_launch(kind)
+        peak = 0.0
+        for _ in range(100 * 200):
+            t = sim.telemetry()
+            agl = sim.height_above_ground()
+            if kind == "aerotow":
+                target = 10.0
+            else:  # winch: shallow at first, then raise the nose progressively (~3 deg/s) to ~30 deg
+                ramp_t = getattr(sim, "_ramp_t", None)
+                if agl > 50 and ramp_t is None:
+                    sim._ramp_t = ramp_t = sim.time
+                target = 8.0 if ramp_t is None else min(30.0, 8.0 + 3.0 * (sim.time - ramp_t))
+            sim.controls.elevator = max(-1, min(1, 0.04 * (target - t["pitch"]) - 1.5 * sim.state[11]))
+            sim.controls.aileron = max(-1, min(1, -0.05 * t["roll"]))
+            sim.step(1 / 100)
+            peak = max(peak, agl)
+            if (sim.launch is None and sim.time > 5) or sim.crashed:
+                break
+        assert not sim.crashed and peak > want, (kind, peak, sim.crashed)
+    sim = FlightSimulator(md, W)
+    sim.make_thermals((0.0, 0.0))
+    tn, te, r, core, top = sim.thermals[0]
+    ground = W.surface_height(tn, te)
+    assert sim.updraft_at(tn, te, ground + 600) > 1.0 > sim.updraft_at(tn + 2 * r, te, ground + 600)
+    sim.start_in_flight(ev.metrics["v_min_sink_ms"] * 1.1, ground + 600, 0.0, north=tn, east=te)
+    for _ in range(300):
+        sim.step(1 / 100)
+    assert sim.telemetry()["vs"] > 0  # climbing in the thermal core
+
+
+def test_engines_move_fore_and_aft_and_wing_height_is_free():
+    from aircraft_foundry.geometry.arrangement import Arrangement
+    m = MissionRequirements()
+    p = baseline(m, _C("turbofan", "wing", "conventional", "low"))
+    x0 = Arrangement(p).engines[0].inlet[0]
+    p.set("engines.x_shift", -2.0)
+    assert Arrangement(p).engines[0].inlet[0] == pytest.approx(x0 - 2.0)
+    q = p.copy()
+    z0 = Arrangement(q).surface_placement("wing").origin[2] if hasattr(Arrangement(q).surface_placement("wing"), "origin") else None
+    q.set("wing.vertical_shift", 0.3)
+    assert evaluate(q, m).converged and evaluate(p, m).converged

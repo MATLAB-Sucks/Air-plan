@@ -498,3 +498,20 @@ def test_crash_breaks_the_aircraft_apart_with_a_debrief(app):
     w.restart("runway")
     assert not w.debris and not w.sim.crashed
     w.close()
+
+
+def test_studio_glider_button(app):
+    from aircraft_foundry.app.design_studio import DesignStudioWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    app.processEvents()
+    w.set_layout("glider")
+    for _ in range(3):
+        app.processEvents()
+    w.refresh_analysis()
+    assert w.mission.category == "glider" and w.params.configuration.propulsion == "none"
+    assert w.verdict.flies and "engines" not in w.parts_present()
+    w.close()

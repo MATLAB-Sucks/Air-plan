@@ -81,7 +81,11 @@ def flight_verdict(params: AircraftParameters, mission: MissionRequirements,
 
     vs_land = math.sqrt(2 * sim.mass * 9.80665 / (1.225 * md.S * (md.CLmax + md.flap_dCL)))
     vref = 1.23 * vs_land
-    alpha, de, thr, ok = sim.trim(vref, 300.0, 1.0, True)
+    if md.glider:
+        alpha, de, _ = sim.glide_trim(1.3 * vs_land, 300.0)
+        ok, thr = True, 0.0
+    else:
+        alpha, de, thr, ok = sim.trim(vref, 300.0, 1.0, True)
     if ok and abs(de) <= 0.95:
         checks.append(Check(True, "Pitch control for landing", f"Trims at {vref * 1.944:.0f} kt with landing flaps "
                             f"using {abs(de):.0%} of elevator travel."))
@@ -96,11 +100,17 @@ def flight_verdict(params: AircraftParameters, mission: MissionRequirements,
         checks.append(Check(False, "Roll control", f"pb/2V = {p_hat:.3f}: too sluggish in roll to be controllable "
                             "(≥ 0.05 needed). Make the ailerons longer or wider."))
 
-    alpha_c, _, thr_c, ok_c = sim.trim(1.4 * vs_land, 500.0, 0.4, False)
-    climb_ok = ok_c and thr_c < 0.9
-    checks.append(Check(climb_ok, "Enough thrust to climb",
-                        f"Level flight just after take-off needs {thr_c:.0%} throttle." if ok_c else
-                        "Can't even hold level flight just after take-off: more thrust or less drag needed."))
+    if md.glider:
+        ld = ev.metrics.get("best_ld", 0.0)
+        checks.append(Check(ld >= 15, "Glides", f"Best glide {ld:.0f}:1, minimum sink {ev.metrics.get('min_sink_ms', 0):.2f} "
+                            "m/s - stays up in thermals." if ld >= 15 else
+                            f"Best glide only {ld:.0f}:1: too much drag or too small a wing to soar."))
+    else:
+        alpha_c, _, thr_c, ok_c = sim.trim(1.4 * vs_land, 500.0, 0.4, False)
+        climb_ok = ok_c and thr_c < 0.9
+        checks.append(Check(climb_ok, "Enough thrust to climb",
+                            f"Level flight just after take-off needs {thr_c:.0%} throttle." if ok_c else
+                            "Can't even hold level flight just after take-off: more thrust or less drag needed."))
 
     cons = {c.name: c for c in ev.constraints}
     weak = [c.name for c in ev.violated if any(w in c.name.lower() for w in STRUCTURE_WORDS)]

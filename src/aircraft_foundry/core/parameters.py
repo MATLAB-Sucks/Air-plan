@@ -29,7 +29,7 @@ LAYOUTS = ("conventional", "canard", "flying_wing", "blended_wing_body", "twin_b
 
 @dataclass
 class ConfigurationParams:
-    propulsion: str = choice("turbofan", ("turbofan", "turboprop"), "Propulsion")
+    propulsion: str = choice("turbofan", ("turbofan", "turboprop", "none"), "Propulsion (none = glider)")
     engine_layout: str = choice("wing", ("wing", "rear_fuselage", "upper_aft", "pusher", "under_wing", "nose"),
                                 "Engine layout")
     tail_type: str = choice("conventional", ("conventional", "t_tail", "v_tail", "twin_fin", "none"), "Tail type")
@@ -58,6 +58,7 @@ class WingParams:
     root_chord: float = p(6.2, 0.6, 90.0, "m", "Root chord (centre-body chord on a BWB)", evolvable=True)
     taper_ratio: float = p(0.25, 0.03, 1.0, "", "Taper ratio (tip / root)", evolvable=True)
     sweep_le_deg: float = p(27.0, 0.0, 75.0, "deg", "LE sweep", step=0.5, evolvable=True)
+    vertical_shift: float = p(0.0, -0.5, 0.5, "", "Wing height fine-tune (fraction of fuselage half-height)", step=0.05)
     dihedral_deg: float = p(5.0, -5.0, 10.0, "deg", "Dihedral", step=0.5)
     twist_tip_deg: float = p(-3.0, -6.0, 2.0, "deg", "Tip twist", step=0.25)
     incidence_deg: float = p(1.5, -2.0, 5.0, "deg", "Root incidence", step=0.25)
@@ -95,6 +96,7 @@ class EngineParams:
     span_fraction: float = p(0.34, 0.15, 0.6, "b/2", "Inboard engine station", step=0.01)
     spacing_fraction: float = p(0.25, 0.05, 0.4, "b/2", "Outboard engine offset", step=0.01)
     bypass_ratio: float = p(5.0, 0.0, 12.0, "", "Bypass ratio (turbofans)", step=0.1)
+    x_shift: float = p(0.0, -15.0, 15.0, "m", "Engines moved forward (-) / aft (+)", step=0.1)
 
 
 @dataclass

@@ -481,6 +481,9 @@ class _Model:
 
 
 def evaluate(params: AircraftParameters, mission: MissionRequirements) -> Evaluation:
+    if params.configuration.propulsion == "none" or getattr(mission, "category", "") == "glider":
+        from .glider import evaluate_glider  # no engine: glide performance, sailplane weights
+        return evaluate_glider(params, mission)
     try:
         model = _Model(params, mission)
     except (ValueError, ZeroDivisionError, FloatingPointError) as exc:

@@ -35,6 +35,9 @@ def _C(prop, engines, tail, wing, layout="conventional") -> ConfigurationParams:
 
 def configurations_for(mission: MissionRequirements) -> list[ConfigurationParams]:
     """Every layout worth sizing for this mission (topology is chosen here, then held fixed)."""
+    if getattr(mission, "category", "transport") == "glider":
+        return [_C("none", "wing", "t_tail", "mid"), _C("none", "wing", "conventional", "mid"),
+                _C("none", "wing", "v_tail", "mid")]
     if getattr(mission, "category", "transport") == "aerobatic":
         # stunt planes: single tractor propeller in the nose, conventional tail (low- or mid-wing)
         return [_C("turboprop", "nose", "conventional", "low"), _C("turboprop", "nose", "conventional", "mid"),
@@ -415,6 +418,9 @@ def _size_bwb_centrebody(p: AircraftParameters, mission: MissionRequirements, S:
 
 def baseline(mission: MissionRequirements, config: ConfigurationParams) -> AircraftParameters:
     """Initial sizing of one configuration (layout + propulsion) from the mission requirements."""
+    if getattr(mission, "category", "transport") == "glider":
+        from .glider import size_glider
+        return size_glider(mission, config)
     if getattr(mission, "category", "transport") == "aerobatic":
         return _size_aerobatic(mission, config)
     p = AircraftParameters()
@@ -768,3 +774,9 @@ def _size_aerobatic(mission: MissionRequirements, config: ConfigurationParams) -
             break
         mtow = 0.5 * mtow + 0.5 * new
     return p
+
+
+
+def glider_mission(**overrides):
+    from .glider import glider_mission as _gm
+    return _gm(**overrides)
