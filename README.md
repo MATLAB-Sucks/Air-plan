@@ -126,13 +126,13 @@ It also fixes oversized tails on aircraft with a small cabin and a big wing.
 **Windows** (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.ps1 | iex
+irm https://github.com/MATLAB-Sucks/Air-plan/releases/latest/download/install.ps1 | iex
 ```
 
 **macOS** (Terminal), and **Linux** (from source, needs Python 3.11 or `uv`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.sh | bash
+curl -fsSL https://github.com/MATLAB-Sucks/Air-plan/releases/latest/download/install.sh | bash
 ```
 
 The installer asks **where** to install (this computer, a USB / external
@@ -142,7 +142,7 @@ drive E: with no questions:
 
 ```powershell
 $env:AF_TARGET="drive"; $env:AF_INSTALL_DIR="E:\"; $env:AF_MODE="app"; $env:AF_YES="1"
-irm https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.ps1 | iex
+irm https://github.com/MATLAB-Sucks/Air-plan/releases/latest/download/install.ps1 | iex
 ```
 
 What the installer does:

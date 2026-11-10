@@ -40,7 +40,8 @@ release_json() {  # release_json <repo> <tag|latest>
 }
 jget() { python3 -c "import json,sys,re; d=json.load(sys.stdin); print($1)"; }  # python3 ships with macOS/Linux
 
-printf '\n  Aircraft Foundry installer\n'
+INSTALLER_VERSION="2026-11-10.3"   # shown first, so an old cached copy of this script is easy to spot
+printf '\n  Aircraft Foundry installer (version %s)\n' "$INSTALLER_VERSION"
 # ---------------------------------------------------------------- where
 TARGET="${AF_TARGET:-}"
 if [ -z "$TARGET" ]; then

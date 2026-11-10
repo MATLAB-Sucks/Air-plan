@@ -188,6 +188,8 @@ jobs:
           m = re.search(r"^## " + re.escape(tag) + r".*?\n(.*?)(?=^## |\Z)", text, re.S | re.M)
           open("release-notes.md", "w").write(m.group(1).strip() if m else f"Aircraft Foundry {tag}")
           EOF
+      - name: Add the installers (release downloads can't be served stale by web caches)
+        run: cp install.ps1 install.sh release/
       - name: Publish the release (retries on GitHub network errors)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -202,7 +204,7 @@ jobs:
             echo "attempt $i failed - retrying"; sleep $((i * 20))
           done
           n=$(gh release view "$GITHUB_REF_NAME" --json assets -q '.assets | length')
-          [ "$n" -ge 4 ] || { echo "::error title=Release::only $n of 4 files published"; exit 1; }
+          [ "$n" -ge 6 ] || { echo "::error title=Release::only $n of 6 files published"; exit 1; }
 
   install-test:
     # Installs the just-published release with the one-line commands, on clean machines, in each

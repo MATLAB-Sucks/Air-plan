@@ -1,4 +1,6 @@
 # Aircraft Foundry - one-command installer for Windows (PowerShell 5.1 or 7).
+#   irm https://github.com/MATLAB-Sucks/Air-plan/releases/latest/download/install.ps1 | iex
+# (the release copy can't be served stale by web caches; the raw.githubusercontent.com address can)
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -83,7 +85,8 @@ $Repo = if ($env:AF_REPO) { $env:AF_REPO } else { "MATLAB-Sucks/Air-plan" }
 $Version = if ($env:AF_VERSION) { $env:AF_VERSION } else { "latest" }
 
 Write-Host ""
-Write-Host "  Aircraft Foundry installer" -ForegroundColor Cyan
+$InstallerVersion = "2026-11-10.3"   # shown first, so an old cached copy of this script is easy to spot
+Write-Host "  Aircraft Foundry installer (version $InstallerVersion)" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- where
 $target = $env:AF_TARGET
@@ -206,6 +209,8 @@ try {
             $pyw = "$app\python\pythonw.exe"
         }
         Say "installing the Python packages (a few minutes)..."
+        # pip unpacks several GB: keep its temporary files and cache on the target drive, not C:
+        $env:TMP = $tmp; $env:TEMP = $tmp; $env:PIP_CACHE_DIR = Join-Path $tmp "pip-cache"
         & $pyexe -m pip install -q --upgrade pip
         & $pyexe -m pip install -q --only-binary ":all:" -r "$newApp\requirements\lock-windows-x64-py311.txt"
         if ($LASTEXITCODE -ne 0) { Die "installing the packages failed" }
