@@ -1,23 +1,6 @@
 # Aircraft Foundry - one-command installer for Windows (PowerShell 5.1 or 7).
-#
-#   irm https://raw.githubusercontent.com/MATLAB-Sucks/Air-plan/main/install.ps1 | iex
-#
-# Asks where to install (this computer, a USB / other drive, or any folder) and how:
-#   * Ready-to-run app (recommended) - Python is built in, nothing else is needed.
-#   * From source - uses Python 3.11 if this computer has it; otherwise (or on a USB drive) it puts
-#     a self-contained Python inside the install folder, so it works first time and travels with
-#     the drive (any drive letter).
-# Every download is checked against the release's published SHA-256 (packaged builds).
-# Run it again to update. Saved planes, projects and settings are never touched: on this computer
-# they live in your user data folder; on a USB drive, in AircraftFoundryData on that drive.
-#
-# Unattended use (set before running; skips the questions):
-#   $env:AF_TARGET = "computer" | "drive" | "folder"      $env:AF_INSTALL_DIR = "E:\"  (drive / folder)
-#   $env:AF_MODE   = "app" | "source"                     $env:AF_VERSION = "v0.9.4"   (default: latest)
-#   $env:AF_NO_SHORTCUTS = "1"    $env:AF_NO_LAUNCH = "1"   $env:AF_YES = "1" (accept defaults)
-
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"   # PowerShell 5.1's progress bar slows downloads 10x
+$ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Say($m) { Write-Host "  $m" }
@@ -27,21 +10,42 @@ function Ask($question, $default) {
     $a = Read-Host "  $question [$default]"
     if ([string]::IsNullOrWhiteSpace($a)) { return $default } else { return $a.Trim() }
 }
-$Headers = @{ "User-Agent" = "aircraft-foundry-installer" }
-if ($env:GITHUB_TOKEN) { $Headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" }   # optional: avoids rate limits
+
+$Headers = @{ 
+    "User-Agent" = "aircraft-foundry-installer"
+    "Accept"     = "application/vnd.github+json"
+}
+if ($env:GITHUB_TOKEN) { $Headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" }
+
 function Release($repo, $tag) {
     $u = if ($tag -eq "latest") { "https://api.github.com/repos/$repo/releases/latest" }
          else { "https://api.github.com/repos/$repo/releases/tags/$tag" }
-    # Fetch and parse explicitly: Windows PowerShell 5.1's Invoke-RestMethod can hand back unparsed text
-    try { $resp = Invoke-WebRequest -Uri $u -Headers $Headers -UseBasicParsing }
-    catch { Die "couldn't read $repo ($tag) from GitHub: $($_.Exception.Message)" }
+    try { 
+        $resp = Invoke-WebRequest -Uri $u -Headers $Headers -UseBasicParsing 
+    } catch { 
+        Die "couldn't read $repo ($tag) from GitHub: $($_.Exception.Message)" 
+    }
+    
     $text = $resp.Content
     if ($text -is [byte[]]) { $text = [Text.Encoding]::UTF8.GetString($text) }
-    try { $obj = $text | ConvertFrom-Json } catch { Die "GitHub's answer for $repo ($tag) couldn't be read: $($_.Exception.Message)" }
+    
+    # FIX 1: Strip UTF-8 Byte Order Mark (U+FEFF) and whitespace before parsing
+    $text = $text.Trim().Trim([char]0xFEFF)
+    
+    try { 
+        $obj = $text | ConvertFrom-Json 
+    } catch { 
+        Die "GitHub's answer for $repo ($tag) couldn't be read: $($_.Exception.Message)" 
+    }
+    
     if (-not $obj.tag_name) { Die "no release information for $repo ($tag) - is a release published?" }
     return $obj
 }
-function Download($url, $file) { Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing -Headers @{ "User-Agent" = "aircraft-foundry-installer" } }
+
+function Download($url, $file) { 
+    Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing -Headers @{ "User-Agent" = "aircraft-foundry-installer" } 
+}
+
 function Verify($rel, $file, $name) {
     $sums = $rel.assets | Where-Object { $_.name -eq "SHA256SUMS.txt" } | Select-Object -First 1
     if (-not $sums) { Die "release $($rel.tag_name) has no SHA256SUMS.txt" }
@@ -53,6 +57,7 @@ function Verify($rel, $file, $name) {
     if ((Get-FileHash -Algorithm SHA256 $file).Hash.ToLower() -ne $want) { Die "$name didn't match its published checksum - not installed" }
     Say "checksum verified"
 }
+
 function Shortcut($lnkPath, $target, $workdir) {
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut($lnkPath)
@@ -61,12 +66,16 @@ function Shortcut($lnkPath, $target, $workdir) {
     $lnk.Description = "Aircraft Foundry - conceptual aircraft design"
     $lnk.Save()
 }
-function Replace-Folder($new, $dest) {   # keep the old version as .previous until the new one is in place
+
+function Replace-Folder($new, $dest) {
     $prev = "$dest.previous"
     if (Test-Path $prev) { Remove-Item -Recurse -Force $prev }
     if (Test-Path $dest) { Move-Item $dest $prev }
     try { Move-Item $new $dest }
-    catch { if ((-not (Test-Path $dest)) -and (Test-Path $prev)) { Move-Item $prev $dest }; Die "couldn't move the new version into place: $($_.Exception.Message)" }
+    catch { 
+        if ((-not (Test-Path $dest)) -and (Test-Path $prev)) { Move-Item $prev $dest }
+        Die "couldn't move the new version into place: $($_.Exception.Message)" 
+    }
     Remove-Item -Recurse -Force $prev -ErrorAction SilentlyContinue
 }
 
@@ -75,6 +84,7 @@ $Version = if ($env:AF_VERSION) { $env:AF_VERSION } else { "latest" }
 
 Write-Host ""
 Write-Host "  Aircraft Foundry installer" -ForegroundColor Cyan
+
 # ---------------------------------------------------------------- where
 $target = $env:AF_TARGET
 if (-not $target) {
@@ -86,9 +96,10 @@ if (-not $target) {
     $target = @{ "1" = "computer"; "2" = "drive"; "3" = "folder" }[(Ask "Choose 1, 2 or 3" "1")]
     if (-not $target) { Die "please answer 1, 2 or 3" }
 }
+
 $Dir = $env:AF_INSTALL_DIR
 if ($target -eq "computer") { $Dir = Join-Path $env:LOCALAPPDATA "Programs\AircraftFoundry" }
-elseif ($target -eq "drive" -and -not $Dir) {   # accepts "E", "E:" or "E:\"
+elseif ($target -eq "drive" -and -not $Dir) {
     $drives = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2, 3 -and $_.DeviceID -ne $env:SystemDrive }
     foreach ($d in $drives) {
         $kind = if ($d.DriveType -eq 2) { "removable" } else { "drive" }
@@ -100,6 +111,7 @@ elseif ($target -eq "drive" -and -not $Dir) {   # accepts "E", "E:" or "E:\"
 elseif ($target -eq "folder" -and -not $Dir) { $Dir = Ask "Folder" (Join-Path $env:USERPROFILE "AircraftFoundry") }
 if (-not $Dir) { Die "no install location" }
 $portable = $target -ne "computer"
+
 # ---------------------------------------------------------------- how
 $mode = $env:AF_MODE
 if (-not $mode) {
@@ -110,15 +122,20 @@ if (-not $mode) {
     $mode = @{ "a" = "app"; "b" = "source" }[(Ask "Choose a or b" "a")]
     if (-not $mode) { Die "please answer a or b" }
 }
+
 $rel = Release $Repo $Version
 Write-Host ""
 Say "release $($rel.tag_name) -> $Dir ($target, $mode)"
-$tmp = Join-Path ([IO.Path]::GetTempPath()) ("aircraft-foundry-" + [guid]::NewGuid().ToString("N"))
+
+# FIX 2: Create temp directory on the TARGET drive (e.g. D:\) so C: never runs out of space
+$targetDrive = Split-Path $Dir -Qualifier
+if (-not $targetDrive) { $targetDrive = [IO.Path]::GetTempPath() }
+$tmp = Join-Path $targetDrive ("aircraft-foundry-tmp-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force $tmp | Out-Null
+
 try {
-    if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Force $Dir | Out-Null }   # never "create" a drive root
+    if (-not (Test-Path $Dir)) { New-Item -ItemType Directory -Force $Dir | Out-Null }
     if ($mode -eq "app" -and -not $portable) {
-        # ------------------------------------------------ packaged app on this computer
         $name = "AircraftFoundry-Windows.zip"
         $asset = $rel.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
         if (-not $asset) { Die "release $($rel.tag_name) has no $name" }
@@ -134,7 +151,6 @@ try {
         $launch = Join-Path $Dir "AircraftFoundry.exe"
     }
     elseif ($mode -eq "app") {
-        # ------------------------------------------------ packaged app on a drive / folder: the portable layout
         $name = "AircraftFoundry-Portable.zip"
         $asset = $rel.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
         if (-not $asset) { Die "release $($rel.tag_name) has no $name" }
@@ -145,7 +161,7 @@ try {
         $root = Get-ChildItem -Recurse "$tmp\usb" -Directory -Filter AircraftFoundryData | Select-Object -First 1
         if (-not $root) { Die "the portable archive has no AircraftFoundryData folder" }
         $root = $root.Parent.FullName
-        foreach ($item in Get-ChildItem $root) {   # programs are replaced; your data folder is only added to, never overwritten
+        foreach ($item in Get-ChildItem $root) {
             $dest = Join-Path $Dir $item.Name
             if ($item.Name -eq "AircraftFoundryData") {
                 if (-not (Test-Path $dest)) { Copy-Item -Recurse $item.FullName $dest }
@@ -157,14 +173,13 @@ try {
         $launch = (Get-ChildItem -Recurse (Join-Path $Dir "Windows") -Filter AircraftFoundry.exe | Select-Object -First 1).FullName
     }
     else {
-        # ------------------------------------------------ from source, with Python 3.11
         $app = Join-Path $Dir "AircraftFoundry-source"
         Say "downloading the source of $($rel.tag_name)..."
         Download "https://github.com/$Repo/archive/refs/tags/$($rel.tag_name).zip" "$tmp\src.zip"
         Expand-Archive "$tmp\src.zip" "$tmp\src" -Force
         $src = (Get-ChildItem "$tmp\src" -Directory | Select-Object -First 1).FullName
         $py = $null
-        if (-not $portable) {   # reuse this computer's Python 3.11 if it has one
+        if (-not $portable) {
             foreach ($c in @(@("py", "-3.11"), @("python3.11"), @("python"))) {
                 try {
                     $v = & $c[0] $c[1..9] -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
@@ -186,7 +201,7 @@ try {
             if (-not $pa) { Die "couldn't find a Python 3.11 build to download" }
             Download $pa.browser_download_url "$tmp\python.tar.gz"
             New-Item -ItemType Directory -Force "$newApp" | Out-Null
-            tar -xzf "$tmp\python.tar.gz" -C "$newApp"      # creates $newApp\python
+            tar -xzf "$tmp\python.tar.gz" -C "$newApp"
             $pyexe = "$newApp\python\python.exe"
             $pyw = "$app\python\pythonw.exe"
         }
@@ -196,13 +211,12 @@ try {
         if ($LASTEXITCODE -ne 0) { Die "installing the packages failed" }
         & $pyexe -m pip install -q --no-deps "$newApp"
         Replace-Folder $newApp $app
-        # launcher: relative paths, so it works from any drive letter
         $rel_pyw = $pyw.Substring($Dir.TrimEnd("\").Length).TrimStart("\")
         $cmd = "@echo off`r`nset AF_HERE=%~dp0`r`n" +
                "if exist `"%AF_HERE%AircraftFoundryData\portable.json`" set AIRCRAFT_FOUNDRY_DATA=%AF_HERE%AircraftFoundryData`r`n" +
                "start `"`" `"%AF_HERE%$rel_pyw`" -m aircraft_foundry.app.main %*`r`n"
         Set-Content -Path (Join-Path $Dir "AircraftFoundry.cmd") -Value $cmd -Encoding ASCII
-        if ($portable -and -not (Test-Path (Join-Path $Dir "AircraftFoundryData\portable.json"))) {   # keep data on the drive
+        if ($portable -and -not (Test-Path (Join-Path $Dir "AircraftFoundryData\portable.json"))) {
             New-Item -ItemType Directory -Force (Join-Path $Dir "AircraftFoundryData") | Out-Null
             '{"portable": true}' | Set-Content (Join-Path $Dir "AircraftFoundryData\portable.json")
         }
@@ -217,7 +231,10 @@ try {
         Say "shortcut$(if ($where.Count -gt 1) {'s'}) added"
     }
 }
-finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+finally { 
+    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue 
+}
+
 Write-Host ""
 Write-Host "  Done. Your saved planes and settings are kept between updates." -ForegroundColor Green
 if ($portable -and $mode -eq "app") { Say "On another computer, open the drive and start Windows\AircraftFoundry\AircraftFoundry.exe (or the macOS app)." }
