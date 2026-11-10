@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.0
+- **Gliders.** A glider category and a "Glider kit" in the design studio: an 18 m sailplane with a
+  laminar-flow wing (about 37:1 glide, 0.56 m/s minimum sink, stall ~61 km/h). In the simulator:
+  winch launch or aerotow (L to launch / release), thermals to circle in, a variometer, and
+  airbrakes on F.
+- **More layout freedom:** drag engines forward / aft as well as along the wing; fine-tune the wing's
+  height on the fuselage; set the outer engine pair's spacing.
+- **Autosave and recovery:** unsaved work is copied every two minutes; after an unexpected exit the
+  app offers to bring it back.
+- **F1 in the simulator** shows every control.
+- **Installer:** shows its version, keeps pip's temporary files on the target drive, and is published
+  with each release (`.../releases/latest/download/install.ps1`) so web caches can't serve an old copy.
+
 ## 0.10.0
 - **Choose where to fly, how big and how detailed.** Areas: Lasham (UK gliding), Innsbruck
   (Alpine valley), San Francisco Bay and Queenstown (New Zealand), each 40 or 80 km across,

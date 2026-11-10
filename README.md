@@ -15,6 +15,12 @@ Designs export to STEP, STL, OBJ and JSON.
 Technology: Python 3.11, PySide6, VTK, NumPy/SciPy and CadQuery/OpenCascade.
 Projects and design parameters are saved as JSON.
 
+**New in 0.11.0:**
+
+* **Gliders:** sailplanes, winch and aerotow launches, thermals and a variometer.
+* Freer layouts in the design studio.
+* Autosave with crash recovery.
+
 **New in 0.9.4:**
 
 * Fly around **Lasham** on real terrain, satellite imagery and real runways.

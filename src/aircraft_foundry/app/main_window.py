@@ -147,6 +147,12 @@ class MainWindow(QMainWindow):
             self._started = True
             self.viewport.start()
             self._balance_panels()
+            from PySide6.QtCore import QTimer as _QT
+            self._autosave_timer = _QT(self)
+            self._autosave_timer.timeout.connect(self._autosave)
+            self._autosave_timer.start(120_000)
+            if getattr(self, "_is_main_app", False):
+                _QT.singleShot(800, self.recover_autosave)
             from .update_dialog import check_in_background
             check_in_background(self._update_found)
 
@@ -900,6 +906,58 @@ class MainWindow(QMainWindow):
             self.activate_candidate(project.candidates[0].id)
         self._mark_clean()
 
+    # ------------------------------------------------------------ autosave and recovery
+    def _autosave_path(self):
+        from pathlib import Path
+        loc = getattr(self, "location", None)  # the data folder (on the drive, for portable installs)
+        root = Path(loc.root) if loc is not None else Path.home()
+        return root / "autosave" / ("autosave" + SUFFIX)
+
+    def _autosave(self) -> None:
+        """Every two minutes, unsaved work is copied to the data folder (the project's own file is untouched)."""
+        if not self.dirty or not self.project.candidates:
+            return
+        try:
+            import json
+            path = self._autosave_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.project.to_dict()))
+            tmp.replace(path)
+        except Exception:
+            pass  # autosave must never get in the way
+
+    def _clear_autosave(self) -> None:
+        try:
+            self._autosave_path().unlink()
+        except Exception:
+            pass
+
+    def recover_autosave(self, ask: bool = True) -> bool:
+        """After an unexpected exit: offer to bring back the unsaved project."""
+        path = self._autosave_path()
+        if not path.exists():
+            return False
+        if ask:
+            from datetime import datetime
+            when = datetime.fromtimestamp(path.stat().st_mtime).strftime("%d %b %H:%M")
+            r = QMessageBox.question(self, "Recover unsaved work?",
+                                     f"Aircraft Foundry closed unexpectedly last time. Recover the unsaved project "
+                                     f"from {when}?\n\n(No deletes the recovered copy.)")
+            if r != QMessageBox.Yes:
+                self._clear_autosave()
+                return False
+        try:
+            proj = Project.load(path)
+            proj.path = None
+            self._load_project(proj)
+            self._mark_dirty() if hasattr(self, "_mark_dirty") else setattr(self, "dirty", True)
+            self.statusBar().showMessage("Recovered your unsaved project - save it with Ctrl+S", 10000)
+            return True
+        except Exception:
+            self._clear_autosave()
+            return False
+
     def save_project(self, as_new: bool = False) -> bool:
         if as_new or self.project.path is None:
             path, _ = QFileDialog.getSaveFileName(self, "Save project", self._last_dir(), f"Aircraft Foundry (*{SUFFIX})")
@@ -1009,6 +1067,8 @@ class MainWindow(QMainWindow):
         s.setValue("panels/right", "true" if (pre["right"] if pre else self.right_dock.isVisible()) else "false")
         self.viewport.close()
         super().closeEvent(event)
+        if event.isAccepted():
+            self._clear_autosave()  # a normal close: nothing to recover
         import os as _os
         import sys as _sys
         if _sys.platform.startswith("win") and event.isAccepted() and getattr(self, "_is_main_app", False) \

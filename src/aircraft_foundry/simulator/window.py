@@ -589,6 +589,8 @@ class SimulatorWindow(QMainWindow):
                 self.sim.release("released by the pilot")
             else:
                 self.sim.start_launch("aerotow" if self.launch_box.currentIndex() == 1 else "winch")
+        elif key == Qt.Key_F1:
+            self._toggle_help()
         elif key == Qt.Key_P:
             self.paused = not self.paused
         elif key == Qt.Key_R:
@@ -768,6 +770,29 @@ class SimulatorWindow(QMainWindow):
         return 1.23 * math.sqrt(2 * mass * G0 / (RHO0 * md.S * (md.CLmax + md.flap_dCL)))
 
     world_requested = Signal(str)
+
+    HELP = ("<b>Flight controls</b> (F1 hides this)<br>"
+            "↑ / ↓ pitch · ← / → roll · Q / E rudder · W / S throttle · Shift+W reheat<br>"
+            "F flaps (airbrakes on gliders) · G gear · B brakes · T / Y trim · X stability aid<br>"
+            "A autopilot on/off · any control key takes over from the autopilot<br>"
+            "C camera · Space pause · 1–5 time speed · R restart · Esc / F11 full screen<br>"
+            "<b>Gliders</b>: L launch (winch / aerotow) and release · watch the variometer, "
+            "circle (30–45° bank) in lift<br>"
+            "<b>Game controller</b>: sticks fly, triggers throttle, A/B flaps/gear, Start pauses")
+
+    def _toggle_help(self) -> None:
+        lab = getattr(self, "_help_label", None)
+        if lab is None:
+            lab = self._help_label = QLabel(self.HELP, self.vtk_widget)
+            lab.setWordWrap(True)
+            lab.setStyleSheet("background: rgba(15,18,24,215); color: white; padding: 12px 16px; "
+                              "border-radius: 10px; font-size: 13px;")
+            lab.setFixedWidth(min(620, max(self.vtk_widget.width() - 40, 300)))
+            lab.adjustSize()
+            lab.move(20, 20)
+            lab.hide()
+        lab.setVisible(not lab.isVisible())
+        lab.raise_()
 
     def _chosen_world_key(self) -> str:
         from .world import DETAILS, PROCEDURAL, SIZES, world_key

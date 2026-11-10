@@ -515,3 +515,45 @@ def test_studio_glider_button(app):
     assert w.mission.category == "glider" and w.params.configuration.propulsion == "none"
     assert w.verdict.flies and "engines" not in w.parts_present()
     w.close()
+
+
+def test_autosave_and_recovery(app, tmp_path):
+    from aircraft_foundry.app.main_window import MainWindow
+    from aircraft_foundry.core.synthesis import baseline, configurations_for
+    from aircraft_foundry.portable import DataLocation
+    w = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    w.show()
+    app.processEvents()
+    w.add_studio_design(baseline(w.project.mission, configurations_for(w.project.mission)[0]))
+    w._mark_dirty()
+    w._autosave()
+    path = w._autosave_path()
+    assert path.exists() and str(tmp_path) in str(path)  # in the data folder (on the drive when portable)
+    # simulate an unexpected exit: the next start recovers the work
+    w2 = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    assert w2.recover_autosave(ask=False)
+    assert len(w2.project.candidates) == len(w.project.candidates) and w2.dirty
+    w2.dirty = False
+    w2.close()  # a normal close removes the copy
+    assert not path.exists()
+    w.dirty = False
+    w.close()
+
+
+def test_simulator_help_card(app):
+    from aircraft_foundry.core.design import AircraftDesign
+    from aircraft_foundry.core.evaluator import evaluate
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    from aircraft_foundry.simulator.window import SimulatorWindow
+    from PySide6.QtCore import Qt
+    m = MissionRequirements()
+    p = baseline(m, _C("turbofan", "wing", "conventional", "low"))
+    w = SimulatorWindow(AircraftDesign(p, "help"), m, evaluate(p, m))
+    w.timer.stop()
+    w.show()
+    w._key_pressed(Qt.Key_F1)
+    assert w._help_label.isVisible() and "Flight controls" in w._help_label.text()
+    w._key_pressed(Qt.Key_F1)
+    assert not w._help_label.isVisible()
+    w.close()
