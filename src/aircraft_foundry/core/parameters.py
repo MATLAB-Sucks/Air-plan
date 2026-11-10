@@ -107,6 +107,8 @@ class GearParams:
     wheel_diameter: float = p(1.1, 0.25, 1.8, "m", "Wheel diameter", step=0.01)
     ground_clearance: float = p(1.0, 0.25, 5.0, "m", "Fuselage ground clearance", step=0.01)
     wheels_per_leg: int = p(2, 1, 2, "", "Wheels per leg", step=1, integer=True)
+    layout: str = choice("tricycle", ("tricycle", "glider_tail", "glider_nose"),
+                         "Wheel layout (gliders: main + tail wheel, or nose + main + tail like a K-21)")
 
 
 @dataclass

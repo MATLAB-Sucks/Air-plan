@@ -38,7 +38,7 @@ SPECS = dict(P.parameter_specs() if callable(P.parameter_specs) else P.parameter
 LAYOUTS = [("Conventional", "conventional"), ("Canard", "canard"), ("Flying wing", "flying_wing"),
            ("Blended wing body", "blended_wing_body"), ("Twin boom", "twin_boom"),
            ("Supersonic delta", "supersonic_delta"), ("Stunt plane (aerobatic)", "aerobatic"),
-           ("Glider (sailplane)", "glider")]
+           ("Glider (sailplane)", "glider"), ("K-21 two-seat trainer (preset)", "k21")]
 
 
 def clamp(name: str, value: float) -> float:
@@ -729,9 +729,10 @@ class DesignStudioWindow(QMainWindow):
     def set_layout(self, layout: str):
         """A new layout re-sizes a starting design for it (keeping the engine and wing choices where valid)."""
         from ..core import synthesis as S
-        if layout == "glider":
-            self.mission = S.glider_mission()
-            self.params = S.baseline(self.mission, S.configurations_for(self.mission)[0])
+        if layout in ("glider", "k21"):
+            self.mission = S.k21_mission() if layout == "k21" else S.glider_mission()
+            self.params = S.k21_preset(self.mission) if layout == "k21" else \
+                S.baseline(self.mission, S.configurations_for(self.mission)[0])
             self.rebuild_editors(fit=True)
             self.schedule_analysis()
             QTimer.singleShot(0, self._refresh_panel)

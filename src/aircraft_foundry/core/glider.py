@@ -63,7 +63,8 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
     S, b, AR, mac = model.S, model.b, model.AR, model.mac
     # ---------------- weights
     nz = max(st.limit_load_factor, abs(getattr(st, "negative_load_factor", -2.65))) * st.safety_factor
-    empty = 1.6 * b ** 1.8 * (nz / 7.95) ** 0.3
+    seats = 2 if m.payload_kg + m.crew_kg > 130 else 1
+    empty = 1.6 * b ** 1.8 * (nz / 7.95) ** 0.3 * (S / (b ** 2 / 22.0)) ** 0.35 * (1.2 if seats == 2 else 1.0)
     groups = {"wing": 0.55 * empty * st.wing_strength ** 0.55, "fuselage": 0.25 * empty * st.fuselage_strength ** 0.3,
               "horizontal_tail": 0.04 * empty * st.tail_strength ** 0.45,
               "vertical_tail": 0.04 * empty * st.tail_strength ** 0.45,
@@ -114,7 +115,7 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
     x_np = (a_w * arr.x_ac_wing + tail_moment - cma_fus * mac) / (a_w + tail_term)
     sm = (x_np - x_cg) / mac
     # ---------------- requirements
-    cons = [Constraint("Best glide ratio", best_ld, lower=35.0),
+    cons = [Constraint("Best glide ratio", best_ld, lower=35.0 if seats == 1 else 30.0),  # two-seat trainers: 30
             Constraint("Minimum sink rate", min_sink, upper=0.75, unit="m/s"),
             Constraint("Stall speed", v_stall, upper=22.5, unit="m/s"),
             Constraint("Wingspan", b, upper=m.max_span_m, unit="m"),
@@ -133,7 +134,9 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
                "cruise_speed_ms": v_best, "cruise_cl": cl_best, "clmax_landing": clmax + 0.1,
                "wing_loading_kg_m2": mass / S, "aspect_ratio": AR, "takeoff_field_m": 0.0,
                "wing_failure_g": st.limit_load_factor * st.safety_factor * st.wing_strength,
-               "vh": vh, "vv": vv}
+               "vh": vh, "vv": vv,
+               # never-exceed speed: gliders are cleared to roughly 250-280 km/h (K-21: 280)
+               "vne_ms": 77.8 * min(1.0, (st.limit_load_factor / 6.5) ** 0.25)}
     notes = [f"Glider: best glide {best_ld:.0f}:1 at {v_best * 3.6:.0f} km/h, minimum sink {min_sink:.2f} m/s at "
              f"{v_min_sink * 3.6:.0f} km/h, stall {v_stall * 3.6:.0f} km/h, wing loading {mass / S:.0f} kg/m²."]
     ok = all(c.satisfied for c in cons)
@@ -163,7 +166,8 @@ def size_glider(mission: MissionRequirements, config) -> AircraftParameters:
             "structure.limit_load_factor": getattr(mission, "g_limit", 5.3), "structure.safety_factor": 1.5,
             "structure.negative_load_factor": -0.5 * getattr(mission, "g_limit", 5.3),
             "structure.insulation_kg_m2": 0.3, "structure.wing_material": "CFRP quasi-isotropic",
-            "structure.fuselage_material": "CFRP quasi-isotropic", "gear.wheels_per_leg": 1}
+            "structure.fuselage_material": "CFRP quasi-isotropic", "gear.wheels_per_leg": 1,
+            "gear.layout": "glider_tail", "gear.wheel_diameter": 0.38, "gear.ground_clearance": 0.12}
     for k, v in sets.items():
         try:
             _set(p, k, v)
@@ -189,4 +193,38 @@ def size_glider(mission: MissionRequirements, config) -> AircraftParameters:
     except Exception:
         pass
     _set(p, "configuration.propulsion", "none")
+    _set(p, "gear.layout", sets.get("gear.layout", "glider_tail"))
+    return p
+
+
+def k21_mission() -> MissionRequirements:
+    return glider_mission(name="ASK 21 two-seat trainer", payload_kg=180.0, max_span_m=17.0, g_limit=6.5)
+
+
+def k21_preset(mission: MissionRequirements | None = None) -> AircraftParameters:
+    """Schleicher ASK 21-like two-seat trainer: 17 m, 17.95 m², AR 16, Wortmann FX S 02-196 / FX 60-126
+    (19.6 % / 12.6 %), 4° dihedral, 8.35 m fuselage, T-tail, nose + main + tail wheel, +6.5 / -4 g,
+    VNE 280 km/h, 600 kg maximum.  Real ASK 21: 34:1 at 90 km/h, 0.65 m/s minimum sink."""
+    from .synthesis import _C, _set
+    mission = mission or k21_mission()
+    p = size_glider(mission, _C("none", "wing", "t_tail", "mid"))
+    span, area = 17.0, 17.95
+    root = 2 * area / (span * (1 + 0.5))
+    for k, v in {"wing.span": span, "wing.root_chord": root, "wing.taper_ratio": 0.5, "wing.dihedral_deg": 4.0,
+                 "wing.sweep_le_deg": 0.0, "wing.tc_root": 0.196, "wing.tc_tip": 0.126, "wing.camber": 0.04,
+                 "fuselage.length": 8.35, "fuselage.diameter": 0.78, "fuselage.height_ratio": 1.25,
+                 "htail.span": 3.4, "htail.root_chord": 0.75, "vtail.span": 1.25, "vtail.root_chord": 1.25,
+                 "structure.limit_load_factor": 6.5, "structure.negative_load_factor": -4.0,
+                 "gear.layout": "glider_nose"}.items():
+        _set(p, k, v)
+    best = None  # re-balance for the two-seat cockpit
+    for xp in np.linspace(0.22, 0.42, 21):
+        _set(p, "wing.x_position", float(xp))
+        ev = evaluate_glider(p, mission)
+        if ev.converged:
+            d = abs(ev.metrics["static_margin"] - 0.15)
+            if best is None or d < best[0]:
+                best = (d, float(xp))
+    if best:
+        _set(p, "wing.x_position", best[1])
     return p

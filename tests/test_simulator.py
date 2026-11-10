@@ -492,29 +492,7 @@ def test_glider_glides_launches_and_climbs_in_thermals():
     glide = t["distance_km"] * 1000 / (1000 - t["altitude"])
     assert glide == pytest.approx(ev.metrics["best_ld"], rel=0.15)  # flies its glide ratio
     for kind, want in (("winch", 250), ("aerotow", 550)):
-        sim = FlightSimulator(md, W)
-        sim.place_on_runway()
-        for _ in range(200):
-            sim.step(1 / 100)
-        assert sim.start_launch(kind)
-        peak = 0.0
-        for _ in range(100 * 200):
-            t = sim.telemetry()
-            agl = sim.height_above_ground()
-            if kind == "aerotow":
-                target = 10.0
-            else:  # winch: shallow at first, then raise the nose progressively (~3 deg/s) to ~30 deg
-                ramp_t = getattr(sim, "_ramp_t", None)
-                if agl > 50 and ramp_t is None:
-                    sim._ramp_t = ramp_t = sim.time
-                target = 8.0 if ramp_t is None else min(30.0, 8.0 + 3.0 * (sim.time - ramp_t))
-            sim.controls.elevator = max(-1, min(1, 0.04 * (target - t["pitch"]) - 1.5 * sim.state[11]))
-            sim.controls.aileron = max(-1, min(1, -0.05 * t["roll"]))
-            sim.step(1 / 100)
-            peak = max(peak, agl)
-            if (sim.launch is None and sim.time > 5) or sim.crashed:
-                break
-        assert not sim.crashed and peak > want, (kind, peak, sim.crashed)
+        _launch(md, W, kind, want)
     sim = FlightSimulator(md, W)
     sim.make_thermals((0.0, 0.0))
     tn, te, r, core, top = sim.thermals[0]
@@ -537,3 +515,55 @@ def test_engines_move_fore_and_aft_and_wing_height_is_free():
     z0 = Arrangement(q).surface_placement("wing").origin[2] if hasattr(Arrangement(q).surface_placement("wing"), "origin") else None
     q.set("wing.vertical_shift", 0.3)
     assert evaluate(q, m).converged and evaluate(p, m).converged
+
+
+
+def _launch(md, W, kind, want):
+    """Fly a launch the way a glider pilot does; the airframe must never fail."""
+    sim = FlightSimulator(md, W)
+    sim.place_on_runway()
+    for _ in range(300):
+        sim.step(1 / 100)
+    rest = sim.telemetry()
+    assert not sim.crashed and abs(rest["roll"]) < 20 and -2 < rest["pitch"] < 15  # upright on its wheels
+    assert sim.start_launch(kind)
+    st, peak = {}, 0.0
+    while sim.time < 420:  # a tow to 600 m takes ~4-5 minutes
+        t = sim.telemetry()
+        agl = sim.height_above_ground()
+        if kind == "aerotow":
+            target = 6.0
+        else:  # lift off, then rotate progressively into the full climb from ~15 m
+            if agl > 15 and "ramp" not in st:
+                st["ramp"] = sim.time
+            target = 10.0 if "ramp" not in st else min(35.0, 10.0 + 4.0 * (sim.time - st["ramp"]))
+        sim.controls.elevator = max(-1, min(1, 0.04 * (target - t["pitch"]) - 1.5 * sim.state[11]))
+        sim.controls.aileron = max(-1, min(1, -0.05 * t["roll"] - 0.3 * sim.state[10]))
+        sim.step(1 / 100)
+        peak = max(peak, agl)
+        assert not sim.failure, (kind, sim.failure_msg)  # the tail never breaks on a launch
+        if (sim.launch is None and sim.time > 8) or sim.crashed:
+            break
+    assert not sim.crashed and peak > want and "released" in getattr(sim, "launch_result", ""), (kind, peak)
+    return sim
+
+
+def test_gliders_have_glider_wheels_and_the_k21_preset():
+    from aircraft_foundry.core.synthesis import k21_mission, k21_preset
+    from aircraft_foundry.core.verdict import flight_verdict
+    from aircraft_foundry.geometry.arrangement import Arrangement
+    from aircraft_foundry.simulator.world import load_world
+    p, m, ev = _glider()
+    assert [g.name for g in Arrangement(p).gear] == ["main_centre", "tail_wheel"]  # two wheels
+    km = k21_mission()
+    k = k21_preset(km)
+    kev = evaluate(k, km)
+    K = kev.metrics
+    assert [g.name for g in Arrangement(k).gear] == ["main_centre", "tail_wheel", "nose"]  # like the real ASK 21
+    assert k.wing.span == pytest.approx(17.0) and Arrangement(k).wing.area == pytest.approx(17.95, rel=0.02)
+    assert 330 < K["empty_kg"] < 400 and 28 < K["best_ld"] < 38 and 60 < K["stall_speed_ms"] * 3.6 < 72
+    assert K["vne_ms"] * 3.6 == pytest.approx(280, rel=0.02) and kev.feasible and flight_verdict(k, km, kev).flies
+    md = build_aero_model(k, km, kev)
+    W = load_world("lasham-40-standard")
+    _launch(md, W, "winch", 200)
+    _launch(md, W, "aerotow", 550)

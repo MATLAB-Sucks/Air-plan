@@ -199,7 +199,7 @@ def build_aero_model(params: AircraftParameters, mission: MissionRequirements, e
     pts = []
     for leg in arr.gear:
         bottom = leg.axle - np.array([0, 0, leg.wheel_diameter / 2])
-        pts.append((np.array([-(bottom[0] - x_cg), bottom[1], -(bottom[2] - 0.0)]), leg.name != "nose"))
+        pts.append((np.array([-(bottom[0] - x_cg), bottom[1], -(bottom[2] - 0.0)]), leg.name.startswith("main")))
     fus = arr.fuselage
     geo_pts = [np.array([0.0, 0.0, float(fus.centre_z(0.0))]),
                np.array([fus.length, 0.0, float(fus.centre_z(fus.length))])]
@@ -231,7 +231,8 @@ def build_aero_model(params: AircraftParameters, mission: MissionRequirements, e
                      CLmin=-(max(1.15, m.get("clmax_landing", 1.5) - flap_dCL) - 1.6 * params.wing.camber * 6.0),
                      # design dive speed V_D ~ 1.5 x cruise equivalent airspeed (A320: ~250 KEAS cruise,
                      # V_D ~ 381 KEAS); dynamic pressure is the structural measure
-                     q_dive=(1.5 ** 2) * 0.5 * isa(mission.cruise_altitude_m).density * m["cruise_speed_ms"] ** 2)
+                     q_dive=(0.5 * 1.225 * (1.11 * m["vne_ms"]) ** 2 if "vne_ms" in m else  # gliders: from VNE
+                             (1.5 ** 2) * 0.5 * isa(mission.cruise_altitude_m).density * m["cruise_speed_ms"] ** 2))
 
 
 # ---------------------------------------------------------------------------------------------------- dynamics
@@ -366,7 +367,7 @@ class FlightSimulator:
         self._near_stall = abs(cl_lin) / max(lim, 1e-6)
         cd = md.polar.cd(min(abs(cl), 1.5), max(min(mach, 3.0), 0.05))[0]
         if md.glider:  # airbrakes: drag and spoiled lift (the "flaps" input)
-            cd += 0.045 * ctl.flaps + (0.01 if ctl.gear_down else 0.0)
+            cd += 0.045 * ctl.flaps + (0.0015 if ctl.gear_down else 0.0)  # faired fixed wheel: little drag
             cl -= 0.18 * ctl.flaps * math.copysign(1.0, cl)
         else:
             cd += md.flap_dCD * ctl.flaps + (md.gear_dCD if ctl.gear_down else 0.0)
@@ -446,6 +447,24 @@ class FlightSimulator:
             f_body = R.T @ f_ned
             F += f_body
             M += np.cross(pt, f_body)
+        if md.glider:
+            # wing-tip skids: a glider rests on one tip; the tip slides with friction (not a crash)
+            for pt in md.airframe_points[2:4]:
+                p_ned = pos + R @ pt
+                pen = p_ned[2] + self.ground(p_ned[0], p_ned[1])
+                if pen > 0:
+                    v_pt = R @ (v + np.cross(w, pt))
+                    fz = -(mass * G0 * 8.0 * min(pen, 0.3) + mass * 3.0 * max(v_pt[2], 0.0))
+                    vh = v_pt[:2]
+                    sp = float(np.linalg.norm(vh))
+                    fh = -0.4 * abs(fz) * vh / sp if sp > 0.05 else -mass * 2.0 * vh
+                    f_body = R.T @ np.array([fh[0], fh[1], fz])
+                    F += f_body
+                    M += np.cross(pt, f_body)
+            if self.launch is not None and on_ground_now(self, pos) and V < 12.0:
+                # the wing runner holds the wings level until the ailerons work
+                phi = math.atan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (q[1] ** 2 + q[2] ** 2))
+                M[0] += -md.inertia[0, 0] * (25.0 * phi + 10.0 * w[0])
         info = {"alpha": alpha, "beta": beta, "mach": mach, "V": V, "qbar": qbar, "cl": cl, "cd": cd,
                 "thrust": thrust, "reheat": reheat, "stalled": stalled, "on_ground": on_ground, "alt": alt,
                 "lift": lift, "drag": drag, "roll_moment": qbar * md.S * md.b * md.Clda * da}
@@ -496,7 +515,10 @@ class FlightSimulator:
         v_ned = R @ self.state[3:6]
         self.distance_flown += float(np.hypot(v_ned[0], v_ned[1])) * dt
         if self.launch is not None and self.launch.get("done"):
-            self.release("released at the top")
+            if self.launch.get("weak"):
+                self.release("weak link broke - land ahead or fly a short circuit")
+            else:
+                self.release("released at the top")
         p_ = self.state[0:3]
         self.updraft = self.updraft_at(p_[0], p_[1], -p_[2]) if self.thermals else 0.0
         self._check_structure()
@@ -554,6 +576,10 @@ class FlightSimulator:
         names = ("nose", "tail", "right wing tip", "left wing tip")
         for name, pt in zip(names, self.m.airframe_points):
             p = pos + R @ pt
+            if self.m.glider and "wing tip" in name:  # tip skids: only a fast or hard contact is a crash
+                v_tip = v_ned + R @ np.cross(self.state[10:13], pt)
+                if np.linalg.norm(v_tip[:2]) < 25.0 and v_tip[2] < 3.0 and p[2] + self.ground(p[0], p[1]) < 0.6:
+                    continue
             if p[2] + self.ground(p[0], p[1]) > 0.3:
                 where = "the terrain" if not on_ground else "the ground"
                 self.crashed = f"Crashed: the {name} hit {where}"
@@ -562,7 +588,7 @@ class FlightSimulator:
             self.crashed = "Crashed: flew into the ground"
         elif on_ground and v_ned[2] > 4.0:
             self.crashed = f"Crashed: touched down at {v_ned[2]:.1f} m/s sink rate (limit ~3 m/s)"
-        elif on_ground and (abs(phi) > 15 * D2R or theta > 18 * D2R or theta < -10 * D2R):
+        elif on_ground and not self.m.glider and (abs(phi) > 15 * D2R or theta > 18 * D2R or theta < -10 * D2R):
             self.crashed = "Crashed: wing or tail strike"
         self._track_landing(on_ground, v_ned, phi, theta)
 
@@ -612,12 +638,18 @@ class FlightSimulator:
         if L["kind"] == "winch":
             d = L["winch"] - pos
             dist = float(np.linalg.norm(d))
-            elev = math.degrees(math.atan2(-d[2], math.hypot(d[0], d[1])))
-            if dist < 60 or (agl > 40 and elev > 72) or agl > 520:
+            # cable angle below the horizon (NED: the winch is *below*, so d[2] > 0)
+            elev = math.degrees(math.atan2(d[2], math.hypot(d[0], d[1])))
+            ahead = d[0] * math.cos(L["heading"]) + d[1] * math.sin(L["heading"])
+            # the hook back-releases once the cable gets steep or pulls from behind
+            if dist < 60 or (agl > 40 and elev > 70) or ahead < 0 or agl > 600:
                 L["done"] = True
                 return np.zeros(3)
-            # the winch driver regulates cable tension to hold launch speed (~100 km/h)
-            tension = m * G0 * float(np.clip(0.75 + 0.06 * (28.0 - V), 0.25, 1.3))
+            # the winch driver regulates cable tension to hold launch speed (~95-110 km/h)
+            tension = m * G0 * float(np.clip(1.0 + 0.15 * (28.0 - V), 0.0, 1.4))  # backs right off when fast
+            if tension * ramp > 1.6 * m * G0:  # weak link (well above normal launch loads)
+                L["done"], L["weak"] = True, True
+                return np.zeros(3)
             return d / dist * tension * ramp
         if agl > 600:
             L["done"] = True
@@ -658,10 +690,13 @@ class FlightSimulator:
         rw = (runway or getattr(self.terrain, "home", HOME)).departure()  # one-way mountain strips: take off away from the terrain
         md = self.m
         mains = [p for p, main in md.gear_points if main]
-        nose = [p for p, main in md.gear_points if not main][0]
+        others = [p for p, main in md.gear_points if not main]
+        ahead = [p for p in others if p[0] > mains[0][0]]
+        nose = ahead[0] if ahead else others[0]  # nose wheel if there is one, else the tail wheel
         dx = nose[0] - mains[0][0]
         dz = nose[2] - mains[0][2]
-        theta = math.atan2(dz, dx) if abs(dx) > 1e-6 else 0.0  # equal wheel heights: tan(theta) = dz/dx
+        # both wheels on the ground: tan(theta) = dz / dx (atan, not atan2: a tail wheel is *behind* the main)
+        theta = math.atan(dz / dx) if abs(dx) > 1e-6 else 0.0
         q = euler_to_quat(0.0, theta, math.radians(rw.heading_deg))
         R = quat_to_dcm(q)
         h = max((R @ p)[2] for p, _ in md.gear_points)
@@ -716,7 +751,7 @@ class FlightSimulator:
             q = euler_to_quat(0.0, alpha + gamma, heading_deg * D2R)
             self.state = np.concatenate([[north, east, -altitude], [speed * math.cos(alpha), 0, speed * math.sin(alpha)],
                                          q, np.zeros(3)])
-            self.controls = Controls(sas=self.controls.sas, gear_down=False, throttle=0.0, pitch_trim=de)
+            self.controls = Controls(sas=self.controls.sas, gear_down=True, throttle=0.0, pitch_trim=de)  # fixed gear
             self.crashed = self.failure = self.failure_msg = ""
             self.time = 0.0
             self.airborne_since, self.touchdown, self.landing = 0.0, None, None
@@ -764,6 +799,10 @@ class FlightSimulator:
             return 0.0, sb.mach_cutoff(max(t["altitude"], 0.0))
         r = self.m.polar.boom(self.m.mass * G0, t["mach"], max(t["altitude"], 1000.0))
         return sb.perceived_level_db(r.overpressure_psf, self.m.polar.shaping_credit(r)), r.mach_cutoff
+
+
+def on_ground_now(sim, pos) -> bool:
+    return pos[2] + sim.ground(pos[0], pos[1]) > -3.0
 
 
 def rate_landing(td: dict, stop_pos: np.ndarray, runway=None, runways=None) -> dict:

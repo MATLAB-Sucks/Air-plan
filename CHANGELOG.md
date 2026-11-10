@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.1
+- **Fixed: the glider's tail broke at the start of a winch launch or aerotow.** Gliders now have a
+  proper never-exceed speed (about 270-280 km/h; it was wrongly derived from the best-glide speed).
+- **Glider wheels:** a main wheel and a tail wheel (or nose + main + tail, like the ASK 21) instead of
+  airliner gear; the glider rests on a wing tip, which slides on its skid; a wing runner holds the
+  wings level at the start of a launch.
+- **K-21 preset** (two-seat trainer): 17 m, 17.95 m², +6.5 / -4 g, VNE 280 km/h, 600 kg.
+- **More realistic winch launches:** the winch holds a sensible launch speed and backs off when fast,
+  the hook back-releases at the top (or if the glider passes the winch), and a weak link protects
+  the airframe.
+- Fixed: gliders could be placed upside down on the runway.
+
 ## 0.11.0
 - **Gliders.** A glider category and a "Glider kit" in the design studio: an 18 m sailplane with a
   laminar-flow wing (about 37:1 glide, 0.56 m/s minimum sink, stall ~61 km/h). In the simulator:

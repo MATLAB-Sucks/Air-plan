@@ -706,6 +706,22 @@ class Arrangement:
         width = 0.35 * dw
         zg = self.z_ground
         legs = []
+        layout = getattr(g, "layout", "tricycle")
+        if layout in ("glider_tail", "glider_nose"):
+            # gliders: one main wheel on the centre line, a small tail wheel, (K-21: and a nose wheel)
+            mac = self.wing.mac
+            xm = self.x_ac_wing + (0.15 * mac if layout == "glider_nose" else -0.25 * mac)
+            dm, dt_, dn_ = 0.38, 0.20, 0.30  # 5.00-5 main, 210x65 tail, 4.00-4 nose tyres
+            legs.append(GearLeg("main_centre", np.array([xm, 0.0, float(fus.bottom_z(xm)) + 0.1]),
+                                np.array([xm, 0.0, zg + dm / 2]), dm, 0.13, 1, "fuselage"))
+            xt = 0.97 * fus.length
+            legs.append(GearLeg("tail_wheel", np.array([xt, 0.0, float(fus.bottom_z(xt)) + 0.05]),
+                                np.array([xt, 0.0, float(fus.bottom_z(xt)) - 0.04]), dt_, 0.065, 1, "fuselage"))
+            if layout == "glider_nose":
+                xn = 0.17 * fus.length
+                legs.append(GearLeg("nose", np.array([xn, 0.0, float(fus.bottom_z(xn)) + 0.08]),
+                                    np.array([xn, 0.0, float(fus.bottom_z(xn)) - 0.06]), dn_, 0.1, 1, "fuselage"))
+            return legs
         xn = g.nose_x_fraction * fus.length
         dn = 0.75 * dw
         legs.append(GearLeg("nose", np.array([xn, 0.0, float(fus.bottom_z(xn)) + 0.15 * fus.radius]),

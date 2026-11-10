@@ -780,3 +780,13 @@ def _size_aerobatic(mission: MissionRequirements, config: ConfigurationParams) -
 def glider_mission(**overrides):
     from .glider import glider_mission as _gm
     return _gm(**overrides)
+
+
+def k21_mission():
+    from .glider import k21_mission as _m
+    return _m()
+
+
+def k21_preset(mission=None):
+    from .glider import k21_preset as _p
+    return _p(mission)
