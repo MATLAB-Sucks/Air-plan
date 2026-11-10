@@ -1,0 +1,49 @@
+# Builds every flying area in every size / detail and publishes them as downloads on the "worlds"
+# release; the app downloads the one you pick on first use.
+name: Build world downloads
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/build-worlds.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Make sure the "worlds" release exists
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release view worlds >/dev/null 2>&1 || gh release create worlds --title "Flying areas (map data)" \
+            --notes "Map data for Aircraft Foundry's flight simulator, downloaded by the app on first use. Terrain: Terrarium elevation tiles (Mapzen / AWS Open Data). Imagery: Sentinel-2 cloudless by EOX IT Services GmbH, CC BY-NC-SA 4.0. Runways and places: OpenStreetMap contributors, ODbL." --latest=false
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3          # be polite to the free map servers
+      matrix:
+        area: [lasham, innsbruck, sf-bay, queenstown]
+        size: [40, 80]
+        detail: [standard, high]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.11" }
+      - run: python -m pip install numpy pillow
+      - name: Build ${{ matrix.area }} (${{ matrix.size }} km, ${{ matrix.detail }})
+        run: python tools/build_world.py area ${{ matrix.area }} ${{ matrix.size }} ${{ matrix.detail }} out/world
+      - name: Publish
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          name="world-${{ matrix.area }}-${{ matrix.size }}-${{ matrix.detail }}.zip"
+          (cd out && zip -qr "../$name" world)
+          ls -la "$name"
+          for i in 1 2 3 4 5; do gh release upload worlds "$name" --clobber && exit 0; sleep $((i * 15)); done
+          exit 1

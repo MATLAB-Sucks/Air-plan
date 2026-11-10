@@ -168,9 +168,20 @@ def runways_from_osm(data, lat0, lon0, dem_at) -> tuple[list, list, list]:
     return runways, aerodromes, places
 
 
-def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 50.0) -> None:
+DETAIL = {  # spacing of the height grid (m), terrain tile zoom, imagery zoom, texture size (px)
+    "standard": (50.0, 12, 13, 2048),
+    "high": (30.0, 13, 14, 4096),
+}
+
+
+def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 50.0, detail: str = "standard",
+         out_dir: str | None = None, title: str | None = None) -> None:
+    spacing, dem_zoom, img_zoom, tex_size = DETAIL.get(detail, DETAIL["standard"])
+    if size_km > 60 and detail == "high":
+        img_zoom = 13  # keep the number of imagery tiles reasonable for big areas
     half = size_km * 500.0
-    out = Path(__file__).resolve().parents[1] / "src" / "aircraft_foundry" / "simulator" / "worlds" / name
+    out = Path(out_dir) if out_dir else \
+        Path(__file__).resolve().parents[1] / "src" / "aircraft_foundry" / "simulator" / "worlds" / name
     out.mkdir(parents=True, exist_ok=True)
     n = int(round(2 * half / spacing)) + 1
     north = np.linspace(-half, half, n)
@@ -178,12 +189,11 @@ def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 5
     N, E = np.meshgrid(north, east, indexing="ij")
     LAT, LON = latlon(N, E, lat0, lon0)
     print("terrain heights...")
-    dem, dx0, dy0 = mosaic(DEM_URL, 12, lat0, lon0, half, terrarium)
-    H = sample(dem, 12, dx0, dy0, LAT, LON)
+    dem, dx0, dy0 = mosaic(DEM_URL, dem_zoom, lat0, lon0, half, terrarium)
+    H = sample(dem, dem_zoom, dx0, dy0, LAT, LON)
     np.savez_compressed(out / "height.npz", north=north, east=east, height=np.round(H * 10).astype(np.int16))
     print(f"  heights {H.min():.0f} .. {H.max():.0f} m on a {n} x {n} grid")
     print("imagery...")
-    tex_size = 2048
     tn = np.linspace(half, -half, tex_size)  # image row 0 = north edge
     te = np.linspace(-half, half, tex_size)
     TN, TE = np.meshgrid(tn, te, indexing="ij")
@@ -191,8 +201,8 @@ def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 5
     imagery = ""
     for url in IMG_URLS:
         try:
-            img, ix0, iy0 = mosaic(url, 13, lat0, lon0, half, rgb)
-            tex = sample(img, 13, ix0, iy0, TLAT, TLON)
+            img, ix0, iy0 = mosaic(url, img_zoom, lat0, lon0, half, rgb)
+            tex = sample(img, img_zoom, ix0, iy0, TLAT, TLON)
             Image.fromarray(np.clip(tex, 0, 255).astype(np.uint8)).save(out / "texture.jpg", quality=86)
             imagery = url
             break
@@ -201,7 +211,7 @@ def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 5
 
     def dem_at(nn, ee):
         la, lo = latlon(np.array(nn), np.array(ee), lat0, lon0)
-        return float(sample(dem, 12, dx0, dy0, la, lo))
+        return float(sample(dem, dem_zoom, dx0, dy0, la, lo))
     print("OpenStreetMap...")
     data = osm(lat0, lon0, half)
     from collections import Counter
@@ -214,7 +224,8 @@ def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 5
     for rw in runways:
         print(f"  runway {rw['airfield']} {rw['ref']}: {rw['length']:.0f} m x {rw['width']:.0f} m, "
               f"heading {rw['heading_deg']:.0f}, {rw['surface']}, elevation {rw['elevation']:.0f} m")
-    meta = {"name": name, "title": f"{name.title()} (real terrain)", "lat0": lat0, "lon0": lon0, "size_m": 2 * half,
+    meta = {"name": name, "title": title or f"{name.title()} (real terrain)", "lat0": lat0, "lon0": lon0,
+            "size_m": 2 * half, "detail": detail,
             "spacing_m": spacing, "runways": runways, "aerodromes": aerodromes, "places": places,
             "imagery": bool(imagery),
             "attribution": ["Terrain: Terrarium elevation tiles (Mapzen / AWS Open Data; SRTM, GMTED and others)",
@@ -225,6 +236,17 @@ def main(name: str, lat0: float, lon0: float, size_km: float, spacing: float = 5
     print(f"wrote {out}")
 
 
+AREAS = {  # the selectable flying areas: centre and a description
+    "lasham": (51.1872, -1.0335, "Lasham, Hampshire - the UK's gliding capital"),
+    "innsbruck": (47.2602, 11.3439, "Innsbruck - an airport deep in an Alpine valley"),
+    "sf-bay": (37.6800, -122.3000, "San Francisco Bay - SFO, Oakland and the bay"),
+    "queenstown": (-45.0211, 168.7392, "Queenstown, New Zealand - mountains and lakes"),
+}
+
 if __name__ == "__main__":
     a = sys.argv[1:] or ["lasham", "51.1872", "-1.0335", "40"]
-    main(a[0], float(a[1]), float(a[2]), float(a[3]))
+    if a[0] == "area":  # build_world.py area <name> <size_km> <detail> <out_dir>
+        lat, lon, title = AREAS[a[1]]
+        main(a[1], lat, lon, float(a[2]), detail=a[3], out_dir=a[4], title=title)
+    else:
+        main(a[0], float(a[1]), float(a[2]), float(a[3]))

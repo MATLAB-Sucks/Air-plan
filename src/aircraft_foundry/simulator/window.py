@@ -391,7 +391,7 @@ class SimulatorWindow(QMainWindow):
         self.papis = []  # (runway, [4 actors], aim point ENU)
         for rw in self.terrain.runways:
             hw, L, z = rw.half_width, rw.length, rw.elevation
-            surf.append(oriented_box(rw, 0, L, -hw, hw, z + 0.02, z + 0.05))
+            surf.append(oriented_box(rw, -20, L + 20, -hw - 4, hw + 4, z + 0.10, z + 0.16))
             for a_ in np.arange(400, L - 100, 60):
                 white.append(oriented_box(rw, a_, a_ + 30, -0.5, 0.5, z + 0.05, z + 0.08))
             for k in range(8):
@@ -415,7 +415,10 @@ class SimulatorWindow(QMainWindow):
             n_, e_ = rw.point(rw.aim_point, -hw - 30)
             self.papis.append((rw, acts, np.array([e_, n_, z])))
         for meshes, colour in ((surf, (0.22, 0.22, 0.24)), (white, (0.95, 0.95, 0.95)), (lights, (1.0, 0.95, 0.7))):
-            self.renderer.AddActor(self._actor(mesh_to_polydata(Mesh.merge(meshes)), colour))
+            act = self._actor(mesh_to_polydata(Mesh.merge(meshes)), colour)
+            act.GetMapper().SetResolveCoincidentTopologyToPolygonOffset()  # drawn on top of the ground
+            act.GetMapper().SetRelativeCoincidentTopologyPolygonOffsetParameters(-2, -6)
+            self.renderer.AddActor(act)
         self.papi = self.papis[0][1]  # home runway PAPI (kept for tests / backwards compatibility)
         self.papi_angles = (3.5, 3.17, 2.83, 2.5)  # standard PAPI: lights white above their angle
         sun = vtkLight()

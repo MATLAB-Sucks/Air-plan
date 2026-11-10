@@ -188,15 +188,21 @@ jobs:
           m = re.search(r"^## " + re.escape(tag) + r".*?\n(.*?)(?=^## |\Z)", text, re.S | re.M)
           open("release-notes.md", "w").write(m.group(1).strip() if m else f"Aircraft Foundry {tag}")
           EOF
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: Aircraft Foundry ${{ github.ref_name }}
-          body_path: release-notes.md
-          files: |
-            release/AircraftFoundry-Windows.zip
-            release/AircraftFoundry-macOS.zip
-            release/AircraftFoundry-Portable.zip
-            release/SHA256SUMS.txt
+      - name: Publish the release (retries on GitHub network errors)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in 1 2 3 4 5; do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" release/* --clobber && break
+            else
+              gh release create "$GITHUB_REF_NAME" release/* --title "Aircraft Foundry $GITHUB_REF_NAME" \
+                --notes-file release-notes.md && break
+            fi
+            echo "attempt $i failed - retrying"; sleep $((i * 20))
+          done
+          n=$(gh release view "$GITHUB_REF_NAME" --json assets -q '.assets | length')
+          [ "$n" -ge 4 ] || { echo "::error title=Release::only $n of 4 files published"; exit 1; }
 
   install-test:
     # Installs the just-published release with the one-line commands, on clean machines, in each

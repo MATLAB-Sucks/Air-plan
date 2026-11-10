@@ -52,8 +52,9 @@ class RealWorld:
         d = np.load(folder / "height.npz")
         self._north, self._east = d["north"].astype(float), d["east"].astype(float)
         self._h = d["height"].astype(float) / 10.0
-        self.runways = tuple(self._make_runways(self.meta.get("runways", [])))
+        self.runways = tuple(self._common_elevations(self._make_runways(self.meta.get("runways", []))))
         self.home = self._pick_home()
+        self._flatten_runways()
 
     # ---- runways
     @staticmethod
@@ -109,6 +110,37 @@ class RealWorld:
             out.append(Runway(code, rw.get("airfield", "Airfield"), n0, e0, hdg, rw["length"], rw["width"],
                               rw["elevation"]))
         return out
+
+    @staticmethod
+    def _common_elevations(runways: list) -> list:
+        """Runways of one airfield (they may cross) share one level: their mean surveyed elevation."""
+        import dataclasses
+        groups: dict = {}
+        for r in runways:
+            groups.setdefault(r.name, []).append(r)
+        out = []
+        for r in runways:
+            same = [o for o in groups[r.name]
+                    if math.hypot(*(np.array(o.point(o.length / 2)) - np.array(r.point(r.length / 2)))) < 3000]
+            out.append(dataclasses.replace(r, elevation=float(np.mean([o.elevation for o in same]))))
+        return out
+
+    def _flatten_runways(self, flat: float = 60.0, blend: float = 190.0) -> None:
+        """Level the terrain under every runway (and blend it into the surroundings), so neither the
+        physics nor the drawn terrain - a coarser triangle mesh - can poke through the runway."""
+        N, E = np.meshgrid(self._north, self._east, indexing="ij")
+        h = self._h
+        for rw in self.runways:
+            dn, de = N - rw.north, E - rw.east
+            along = dn * rw.dir[0] + de * rw.dir[1]
+            right = dn * rw.perp[0] + de * rw.perp[1]
+            out_a = np.clip(np.maximum(-along, along - rw.length), 0, None)
+            out_r = np.clip(np.abs(right) - rw.half_width, 0, None)
+            d = np.hypot(out_a, out_r)  # distance outside the runway rectangle
+            w = np.clip(1.0 - (d - flat) / blend, 0.0, 1.0)
+            w = w * w * (3 - 2 * w)
+            h = h * (1 - w) + rw.elevation * w
+        self._h = h
 
     def _pick_home(self):
         if not self.runways:
