@@ -4,6 +4,7 @@
  "lat0": 51.1872,
  "lon0": -1.0335,
  "size_m": 40000.0,
+ "detail": "standard",
  "spacing_m": 50.0,
  "runways": [
   {
