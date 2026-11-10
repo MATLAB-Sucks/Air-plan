@@ -1,4 +1,5 @@
 """Flight model: trim, dynamic modes, take-off, stability augmentation."""
+import numpy as np
 import math
 
 import pytest
@@ -341,7 +342,7 @@ def test_stall_protection_prevents_deep_stall(airliner):
 def test_real_world_lasham_loads_with_real_runways():
     from aircraft_foundry.simulator.world import available_worlds, load_world
     names = [n for n, _ in available_worlds()]
-    assert "lasham" in names and "test-range" in names
+    assert "lasham-40-standard" in names and "test-range" in names
     w = load_world("lasham")
     assert w.home.code.startswith("EGHL") and w.home.name.startswith("Lasham")
     assert 80 < w.home.heading_deg < 95 and 1500 < w.home.length < 1900  # Lasham 09/27, ~1.7-1.8 km
@@ -402,3 +403,57 @@ def test_t_tail_deep_stall():
         sim.controls.elevator = 1.0 if sim.time < 12 else -1.0
         sim.step(1 / 100)
     assert sim.last_forces["stalled"] and sim.telemetry()["alpha"] > 25  # stuck nose-high despite full push
+
+
+def _event(**kw):
+    base = {"message": "", "failure": "", "airspeed": 70.0, "load_factor": 1.0, "sink_ms": 1.0, "pitch": 3.0,
+            "roll": 0.0, "stalled": False, "fuel_kg": 1000.0, "stress": {"left": 0.5, "right": 0.5}, "ground_speed": 70}
+    base.update(kw)
+    return base
+
+
+def test_debriefs_explain_and_suggest_fixes(airliner):
+    from aircraft_foundry.simulator.debrief import debrief, debrief_html
+    md, ev = airliner
+    m = MissionRequirements()
+    p = baseline(m, _C("turbofan", "wing", "conventional", "low"))
+    vref = 70.0
+    hard = debrief(_event(message="Crashed: touched down at 6.4 m/s sink rate (limit ~3 m/s)", sink_ms=6.4), md, p, vref)
+    assert "6.4 m/s" in hard["numbers"][0] and any("flare" in f for f in hard["flying"])
+    assert any("Flap" in f or "flap" in f for f in hard["design"]) and any("gear" in f.lower() for f in hard["design"])
+    wing = debrief(_event(message="STRUCTURAL FAILURE", failure="left wing", load_factor=4.2,
+                          stress={"left": 1.1, "right": 0.6}), md, p, vref)
+    assert "+2.5 g" in wing["numbers"][0] and any("rolling" in f for f in wing["flying"])
+    assert any("strength" in f for f in wing["design"])
+    stall = debrief(_event(message="Crashed: flew into the ground", stalled=True, airspeed=40), md, p, vref)
+    assert "stalled" in stall["what"] and any("stick forward" in f for f in stall["flying"])
+    fuel = debrief(_event(message="Crashed: flew into the ground", fuel_kg=0.0), md, p, vref)
+    assert "fuel" in fuel["what"].lower()
+    strike = debrief(_event(message="Crashed: wing or tail strike", pitch=14), md, p, vref)
+    assert any("over-rotate" in f for f in strike["flying"])
+    assert "Fix the design" in debrief_html(hard) and "Next time" in debrief_html(hard)
+
+
+def test_runways_are_never_buried():
+    from aircraft_foundry.simulator.world import load_world
+    w = load_world("lasham-40-standard")
+    for r in w.runways:
+        for a in np.linspace(0, r.length, 20):
+            for off in (-r.half_width, 0.0, r.half_width):
+                assert w.height_at(*r.point(a, off)) <= r.elevation + 1e-3  # millimetre rounding
+
+
+def test_world_catalogue_and_fallbacks(tmp_path, monkeypatch):
+    from aircraft_foundry.simulator import world as W
+    monkeypatch.setattr(W, "downloads_dir", lambda: tmp_path)
+    assert W.parse_key("lasham") == ("lasham", 40, "standard")
+    assert W.world_key("innsbruck", 80, "high") == "innsbruck-80-high"
+    assert W.world_folder("lasham-40-standard") is not None  # built in
+    assert W.world_folder("innsbruck-80-high") is None  # not downloaded
+    assert W.load_world("innsbruck-80-high").name == "lasham-40-standard"  # falls back to the built-in map
+    assert W.load_world("test-range").name == "test-range"
+    src = W.world_folder("lasham-40-standard")  # pretend a download: copy the built-in data
+    import shutil
+    shutil.copytree(src, tmp_path / "queenstown-40-high" / "world")
+    assert W.world_folder("queenstown-40-high") is not None
+    assert any(k == "queenstown-40-high" for k, _ in W.available_worlds())

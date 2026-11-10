@@ -293,6 +293,7 @@ class FlightSimulator:
         self.gust = np.zeros(3)
         self._rng = np.random.default_rng(11)
         self.failure = ""  # "", "left wing", "right wing", "tail"
+        self.event: dict | None = None  # what happened at a crash / failure (for the debrief)
         self._sep, self._sep_target, self._sep_frozen = 1.0, 1.0, False
         self._buffet_dcl, self._near_stall = 0.0, 0.0
         self.stress = {"left": 0.0, "right": 0.0, "q": 0.0}
@@ -481,6 +482,14 @@ class FlightSimulator:
         self.distance_flown += float(np.hypot(v_ned[0], v_ned[1])) * dt
         self._check_structure()
         self._check_crash()
+        if (self.crashed or self.failure) and self.event is None:  # snapshot for the debrief
+            t = self.telemetry()
+            f = self.last_forces
+            v_ned = quat_to_dcm(self.state[6:10]) @ self.state[3:6]
+            self.event = {**t, "kind": "failure" if self.failure else "crash", "message": self.crashed or self.failure_msg,
+                          "failure": self.failure, "sink_ms": float(v_ned[2]), "agl": self.height_above_ground(),
+                          "stalled": bool(f.get("stalled")), "cl": float(f.get("cl", 0.0)), "stress": dict(self.stress),
+                          "mass": self.mass}
 
     def _check_structure(self) -> None:
         """Wing-root bending per side (load factor + aileron rolling moment) and overspeed."""
@@ -581,6 +590,7 @@ class FlightSimulator:
         self.crashed = self.failure = self.failure_msg = ""
         self.time = 0.0
         self.airborne_since = self.touchdown = self.landing = None
+        self.event = None
         self.distance_flown = 0.0
         self.gust[:] = 0.0
         self.derivative(self.state, self.controls)  # fresh telemetry for the new position (never stale)
@@ -616,6 +626,7 @@ class FlightSimulator:
         self.crashed = self.failure = self.failure_msg = ""
         self.time = 0.0
         self.airborne_since, self.touchdown, self.landing = 0.0, None, None
+        self.event = None
         self.distance_flown = 0.0
         self._sep, self._sep_frozen, self._buffet_dcl = 1.0, False, 0.0
         self.derivative(self.state, self.controls)  # fresh telemetry for the new position

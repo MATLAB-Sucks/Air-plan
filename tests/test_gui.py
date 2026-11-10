@@ -464,3 +464,37 @@ def test_collapsible_panels_and_full_screen(app, tmp_path):
     assert w2.gallery_dock.isHidden() and not w2.right_dock.isHidden()
     w2.dirty = False
     w2.close()
+
+
+def test_crash_breaks_the_aircraft_apart_with_a_debrief(app):
+    import re
+    from aircraft_foundry.core.design import AircraftDesign
+    from aircraft_foundry.core.evaluator import evaluate
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    from aircraft_foundry.simulator.window import SimulatorWindow
+    m = MissionRequirements()
+    p = baseline(m, _C("turbofan", "wing", "conventional", "low"))
+    w = SimulatorWindow(AircraftDesign(p, "crash"), m, evaluate(p, m))
+    w.timer.stop()
+    w.show()
+    rw = w.terrain.home
+    n, e = rw.point(2500)
+    w.sim.start_in_flight(150, rw.elevation + 400, rw.heading_deg, north=n, east=e)
+    w.sim.controls.elevator = -1.0
+    for _ in range(400):
+        w.advance(0.05)
+        if w.sim.crashed:
+            break
+    w.render_frame()
+    for _ in range(300):
+        w._update_debris(1 / 60)
+    assert w.sim.crashed and len(w.debris) > 10
+    for d in w.debris:  # every piece is on or above the terrain
+        assert d["M"][2, 3] >= w.sim.ground(d["M"][1, 3], d["M"][0, 3]) + 0.2
+    w.coach.update()
+    text = re.sub("<[^>]+>", " ", w.coach_view.text())
+    assert "Next time" in text and "Fix the design" in text
+    w.restart("runway")
+    assert not w.debris and not w.sim.crashed
+    w.close()

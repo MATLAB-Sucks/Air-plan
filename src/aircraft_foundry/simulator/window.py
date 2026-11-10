@@ -206,14 +206,30 @@ class SimulatorWindow(QMainWindow):
         for wdg in (self.wind_spd, self.wind_dir):
             wdg.valueChanged.connect(self._apply_weather)
         self.turb_box.currentIndexChanged.connect(self._apply_weather)
-        from .world import available_worlds
-        self.world_box = QComboBox()
-        self._worlds = available_worlds()
-        self.world_box.addItems([t for _, t in self._worlds])
-        self.world_box.setCurrentIndex(next((i for i, (n_, _) in enumerate(self._worlds)
-                                             if n_ == getattr(self.terrain, "name", "")), 0))
-        self.world_box.currentIndexChanged.connect(self._world_chosen)
-        sf.addRow("World", self.world_box)
+        from .world import AREAS, DETAILS, PROCEDURAL, SIZES, parse_key
+        cur_area, cur_size, cur_detail = (("test-range", 40, "standard") if getattr(self.terrain, "name", "") == PROCEDURAL
+                                          else parse_key(getattr(self.terrain, "name", "")))
+        self.area_box = QComboBox()
+        self._areas = [(a, t) for a, t in AREAS] + [(PROCEDURAL, "Test range (fictional, four airports)")]
+        self.area_box.addItems([t for _, t in self._areas])
+        self.area_box.setCurrentIndex(next((i for i, (a, _) in enumerate(self._areas) if a == cur_area), 0))
+        self.size_box = QComboBox()
+        self.size_box.addItems([f"{s_} km × {s_} km" for s_ in SIZES])
+        self.size_box.setCurrentIndex(SIZES.index(cur_size) if cur_size in SIZES else 0)
+        self.detail_box = QComboBox()
+        self.detail_box.addItems(["Standard detail", "High detail (sharper terrain and imagery)"])
+        self.detail_box.setCurrentIndex(DETAILS.index(cur_detail) if cur_detail in DETAILS else 0)
+        self.world_btn = QPushButton()
+        self.world_btn.clicked.connect(self._fly_world)
+        for wdg in (self.area_box, self.size_box, self.detail_box):
+            wdg.currentIndexChanged.connect(self._update_world_button)
+        sf.addRow("Area", self.area_box)
+        wrow_ = QHBoxLayout()
+        wrow_.addWidget(self.size_box)
+        wrow_.addWidget(self.detail_box)
+        sf.addRow("Map", wrow_)
+        sf.addRow(self.world_btn)
+        self._update_world_button()
         sf.addRow("Start at", self.airport_box)
         sf.addRow("Fuel", self.fuel_box)
         wrow = QHBoxLayout()
@@ -328,7 +344,8 @@ class SimulatorWindow(QMainWindow):
         from vtkmodules.vtkRenderingCore import vtkLight
         T = self.terrain
         north, east, h = T.grid
-        step = max(1, int(np.ceil(len(north) / 400)))  # render at most ~400 x 400 (physics uses the full grid)
+        target = 700 if getattr(T, "detail", "standard") == "high" else 400
+        step = max(1, int(np.ceil(len(north) / target)))  # render at most ~400-700 per side (physics: full grid)
         north, east, h = north[::step], east[::step], h[::step, ::step]
         n = len(north)
         NN, EE = np.meshgrid(north, east, indexing="ij")
@@ -514,6 +531,7 @@ class SimulatorWindow(QMainWindow):
             self.ap.disengage()
             self.ap.vref = self.vref_for_mass()
         self._restore_debris()
+        self._broken_up = False
         self.log = []
         if where == "cruise":
             ok = self.sim.start_in_flight(self.cruise_speed, self.cruise_alt)
@@ -681,6 +699,8 @@ class SimulatorWindow(QMainWindow):
         self.prop_angle = (self.prop_angle + 40 * self.sim.controls.throttle + 3) % (2 * math.pi)
         if self.sim.failure and not self.debris:
             self._break_off(M)
+        if self.sim.crashed and not getattr(self, "_broken_up", False):
+            self._break_up(M)
         self._update_debris()
         for actor, kind, data in self.parts:
             if kind == "debris":
@@ -722,17 +742,68 @@ class SimulatorWindow(QMainWindow):
 
     world_requested = Signal(str)
 
-    def _world_chosen(self, i: int) -> None:
-        """Remember the world; the main window rebuilds the simulator in it (or say how, if standalone)."""
-        name = self._worlds[i][0]
-        if name == getattr(self.terrain, "name", None):
-            return
-        from ..app.settings import settings as _settings
-        _settings().setValue("sim/world", name)
-        if self.receivers(self.world_requested) > 0:
-            self.world_requested.emit(name)
+    def _chosen_world_key(self) -> str:
+        from .world import DETAILS, PROCEDURAL, SIZES, world_key
+        area = self._areas[self.area_box.currentIndex()][0]
+        if area == PROCEDURAL:
+            return PROCEDURAL
+        return world_key(area, SIZES[self.size_box.currentIndex()], DETAILS[self.detail_box.currentIndex()])
+
+    def _update_world_button(self, *_):
+        from .world import PROCEDURAL, world_folder
+        key = self._chosen_world_key()
+        here = key == getattr(self.terrain, "name", None)
+        self.size_box.setEnabled(key != PROCEDURAL)
+        self.detail_box.setEnabled(key != PROCEDURAL)
+        if here:
+            self.world_btn.setText("You are flying here")
+            self.world_btn.setEnabled(False)
+        elif key == PROCEDURAL or world_folder(key) is not None:
+            self.world_btn.setText("Fly here")
+            self.world_btn.setEnabled(True)
         else:
-            self.coach_view.setText("<b>World changed</b> — reopen the flight simulator to fly there.")
+            self.world_btn.setText("Download this map and fly here")
+            self.world_btn.setEnabled(True)
+
+    def _fly_world(self):
+        from .world import PROCEDURAL, download_world, world_folder
+        key = self._chosen_world_key()
+        if key != PROCEDURAL and world_folder(key) is None:
+            from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog
+            import threading
+            dlg = QProgressDialog(f"Downloading the {self.area_box.currentText().split(' —')[0]} map…", "Cancel",
+                                  0, 100, self)
+            dlg.setWindowTitle("Map download")
+            dlg.setMinimumDuration(0)
+            state = {"done": 0, "total": 0, "error": None, "finished": False}
+
+            def work():
+                try:
+                    download_world(key, progress=lambda d, t: state.update(done=d, total=t))
+                except Exception as exc:
+                    state["error"] = str(exc)
+                state["finished"] = True
+            threading.Thread(target=work, daemon=True).start()
+            while not state["finished"]:
+                if state["total"]:
+                    dlg.setMaximum(state["total"])
+                    dlg.setValue(min(state["done"], state["total"]))
+                    dlg.setLabelText(f"Downloading the map… {state['done'] / 1e6:.1f} of {state['total'] / 1e6:.1f} MB")
+                QApplication.processEvents()
+                if dlg.wasCanceled():
+                    return
+                import time as _t
+                _t.sleep(0.05)
+            dlg.close()
+            if state["error"]:
+                QMessageBox.warning(self, "Map download", state["error"])
+                return
+        from ..app.settings import settings as _settings
+        _settings().setValue("sim/world", key)
+        if self.receivers(self.world_requested) > 0:
+            self.world_requested.emit(key)
+        else:
+            self.coach_view.setText("<b>Map ready</b> — reopen the flight simulator to fly there.")
 
     def engage_autopilot(self):
         program = self.ap_programs[self.ap_program.currentIndex()][0]
@@ -811,9 +882,56 @@ class SimulatorWindow(QMainWindow):
             if gone:
                 self.parts[k] = (actor, "debris", data)
                 self.debris.append({"actor": actor, "M": M.copy(), "v": NED_TO_ENU @ v_ned * 0.9 + rng.normal(0, 3, 3),
-                                    "w": rng.normal(0, 1.5, 3), "kind": kind, "data": data})
+                                    "w": rng.normal(0, 1.5, 3), "kind": kind, "data": data, "resting": False})
+
+    def _break_up(self, M: np.ndarray):
+        """Crash: the parts separate with the aircraft's momentum, scaled by how hard the impact was."""
+        self._broken_up = True
+        ev = self.sim.event or {}
+        speed = float(np.hypot(ev.get("ground_speed", 0.0), ev.get("sink_ms", 0.0)))
+        rng = np.random.default_rng(7)
+        v_ned = quat_to_dcm(self.sim.state[6:10]) @ self.sim.state[3:6]
+        v_enu = NED_TO_ENU @ v_ned
+        for k, cid in enumerate(self.part_ids):
+            actor, kind, data = self.parts[k]
+            if kind == "debris":
+                continue
+            minor = kind in ("gear", "prop")
+            if speed < 25 and not minor:
+                continue  # a gentle crash (gear collapse / prop strike): the airframe stays together
+            self.parts[k] = (actor, "debris", data)
+            scatter = 0.25 * speed + 2.0
+            v0 = v_enu * rng.uniform(0.55, 0.95) + rng.normal(0, scatter, 3)
+            v0[2] = abs(v0[2]) * 0.4 + rng.uniform(0, 0.15 * speed)
+            self.debris.append({"actor": actor, "M": M.copy(), "v": v0, "w": rng.normal(0, 0.05 * speed + 0.5, 3),
+                                "kind": kind, "data": data, "resting": False})
 
     def _update_debris(self, dt: float = 1 / 60):
+        """Debris tumbles under gravity, bounces off the terrain losing energy, and slides to a stop."""
+        for d in self.debris:
+            if d.get("resting"):
+                continue
+            d["v"][2] -= G0 * dt
+            d["M"][:3, 3] += d["v"] * dt
+            ground = self.sim.ground(d["M"][1, 3], d["M"][0, 3])
+            if d["M"][2, 3] < ground + 0.3:
+                d["M"][2, 3] = ground + 0.3
+                if d["v"][2] < 0:
+                    d["v"][2] = -0.3 * d["v"][2]  # bounce
+                    d["v"][:2] *= 0.7  # scrape
+                    d["w"] *= 0.6
+                d["v"][:2] *= max(0.0, 1.0 - 2.5 * dt)  # sliding friction
+                if np.linalg.norm(d["v"]) < 0.5 and np.linalg.norm(d["w"]) < 0.3:
+                    d["resting"] = True
+            ang = np.linalg.norm(d["w"]) * dt
+            if ang > 0:
+                c = d["M"][:3, 3].copy()
+                R = rotation_about(np.zeros(3), d["w"], ang)[:3, :3]
+                d["M"][:3, :3] = R @ d["M"][:3, :3]
+                d["M"][:3, 3] = c
+            d["actor"].SetUserMatrix(matrix_to_vtk(d["M"]))
+
+    def _update_debris_unused(self, dt: float = 1 / 60):
         for d in self.debris:
             if d["M"][2, 3] < self.sim.ground(d["M"][1, 3], d["M"][0, 3]) - 2:
                 continue
@@ -1124,8 +1242,15 @@ class CircuitCoach:
         rel = (t["heading"] - rw.heading_deg + 180) % 360 - 180  # heading relative to the runway
         down_hdg = (rw.heading_deg + 180) % 360
         if sim.failure_msg or sim.crashed:
-            w.coach_view.setText(f"<b style='color:#e0533d'>{sim.failure_msg or sim.crashed}</b><br>"
-                                 "Press <b>R</b> to try again.")
+            from .debrief import debrief, debrief_html
+            if sim.event is not None:
+                if getattr(self, "_debrief_for", None) is not sim.event:
+                    self._debrief_for = sim.event
+                    self._debrief_html = debrief_html(debrief(sim.event, w.model, w.params, w.vref()))
+                w.coach_view.setText(self._debrief_html)
+            else:
+                w.coach_view.setText(f"<b style='color:#e0533d'>{sim.failure_msg or sim.crashed}</b><br>"
+                                     "Press <b>R</b> to try again.")
             return
         if w.ap.engaged:
             w.coach_view.setText(f"<b>Autopilot flying</b><br>{w.ap.status}<br>"

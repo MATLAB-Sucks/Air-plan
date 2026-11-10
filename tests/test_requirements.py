@@ -66,7 +66,7 @@ def test_stronger_wing_survives_more_g_in_the_simulator():
         p = baseline(m, CFG)
         p.set("structure.wing_strength", strength)
         sim = FlightSimulator(build_aero_model(p, m, evaluate(p, m)))
-        sim.start_in_flight(185, 3000)
+        sim.start_in_flight(205, 3000)  # well above manoeuvring speed
         sim.controls.elevator, sim.controls.sas = 1.0, False
         g = 0.0
         for _ in range(100 * 8):

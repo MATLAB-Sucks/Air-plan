@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0
+- **Choose where to fly, how big and how detailed.** Areas: Lasham (UK gliding), Innsbruck
+  (Alpine valley), San Francisco Bay and Queenstown (New Zealand), each 40 or 80 km across,
+  standard or high detail (30 m terrain, sharper imagery). Pick them on the simulator's Flight
+  tab; maps download on first use and are kept in your data folder. Lasham is built in.
+- **Runways are never buried by terrain** (terrain levelled under every runway, crossing runways
+  share one level, runways drawn on top).
+- **Realistic stalls and spins:** lift rounds off at CLmax, buffet warns, the nose drops; stalls
+  with rudder become spins that follow the rudder and recover with the standard technique;
+  T-tails can lock into a deep stall.
+- **Crashes and break-ups:** structural failures and impacts break the aircraft into its parts,
+  which tumble, bounce and slide over the terrain; gentle mishaps only break the gear / propellers.
+- **Debriefs that help you fix it:** after a crash or failure: what happened, the numbers, how to
+  fly it differently, and what to change in the design (with where to change it in the studio).
+- **Wind tunnel:** strip-by-strip stall (watch where the wing stalls first), skin-friction and form
+  drag, and the full lift curve with CLmax and stall angle.
+- **More realistic aircraft:** livery, cabin windows, cockpit glazing or canopy, engine intakes.
+- **Max positive and negative g** for the whole aircraft in the design studio; the larger sizes the
+  structure, and the simulator breaks the wing beyond either.
+- Fixed: crash on exit on Windows; releases retry if GitHub's network hiccups.
+
 ## 0.9.5
 - **Windows installer fixes:** works with Windows PowerShell 5.1 (the one built into Windows, which
   could leave the release blank), and installing to a drive root such as `D:\` no longer fails

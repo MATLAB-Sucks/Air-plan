@@ -39,11 +39,96 @@ class ProceduralWorld(Terrain):
         return HOME
 
 
+AREAS = [  # the selectable flying areas (built by tools/build_world.py, downloaded on first use)
+    ("lasham", "Lasham, Hampshire — the UK's gliding capital"),
+    ("innsbruck", "Innsbruck — an airport deep in an Alpine valley"),
+    ("sf-bay", "San Francisco Bay — SFO, Oakland and the bay"),
+    ("queenstown", "Queenstown, New Zealand — mountains and lakes"),
+]
+SIZES = (40, 80)
+DETAILS = ("standard", "high")
+BUILT_IN = "lasham-40-standard"  # ships inside the app (works offline)
+
+
+def world_key(area: str, size: int = 40, detail: str = "standard") -> str:
+    return f"{area}-{int(size)}-{detail}"
+
+
+def parse_key(key: str) -> tuple[str, int, str]:
+    if key in (None, "", "lasham"):
+        return "lasham", 40, "standard"
+    parts = key.rsplit("-", 2)
+    if len(parts) == 3 and parts[1].isdigit():
+        return parts[0], int(parts[1]), parts[2]
+    return key, 40, "standard"
+
+
+def downloads_dir() -> Path:
+    from ..portable import locate
+    return Path(locate().root) / "worlds"
+
+
+def world_folder(key: str) -> Path | None:
+    """Where a world's data is, if it is on this computer (built in, or downloaded)."""
+    area, size, detail = parse_key(key)
+    key = world_key(area, size, detail)
+    if key == BUILT_IN and (WORLDS_DIR / "lasham" / "world.json").exists():
+        return WORLDS_DIR / "lasham"
+    for cand in (downloads_dir() / key / "world", downloads_dir() / key):
+        if (cand / "world.json").exists() and (cand / "height.npz").exists():
+            return cand
+    return None
+
+
+def download_world(key: str, progress=None, repo: str | None = None) -> Path:
+    """Download a flying area from the "worlds" release into the data folder."""
+    import shutil
+    import tempfile
+    import zipfile
+    from .. import updater
+    repo = repo or updater.DEFAULT_REPO
+    area, size, detail = parse_key(key)
+    key = world_key(area, size, detail)
+    url = f"https://github.com/{repo}/releases/download/worlds/world-{key}.zip"
+    dest = downloads_dir() / key
+    with tempfile.TemporaryDirectory() as tmp:
+        zpath = Path(tmp) / "world.zip"
+        try:
+            resp = updater._get(url, timeout=60)
+        except Exception as exc:
+            raise RuntimeError(f"Couldn't download {key} ({exc}). The map packages may still be building on "
+                               "GitHub, or this computer is offline.") from exc
+        total = int(resp.headers.get("Content-Length", 0) or 0)
+        done = 0
+        with open(zpath, "wb") as fh:
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
+        with zipfile.ZipFile(zpath) as z:
+            for m in z.namelist():
+                if m.startswith("/") or ".." in Path(m).parts:
+                    raise RuntimeError("Unsafe path in the map package.")
+            if dest.exists():
+                shutil.rmtree(dest)
+            dest.mkdir(parents=True)
+            z.extractall(dest)
+    folder = world_folder(key)
+    if folder is None:
+        raise RuntimeError("The downloaded map package is incomplete.")
+    return folder
+
+
 class RealWorld:
-    def __init__(self, name: str):
-        folder = WORLDS_DIR / name
+    def __init__(self, name: str, folder: Path | None = None):
+        folder = folder or world_folder(name) or (WORLDS_DIR / name)
         self.name = name
         self.meta = json.loads((folder / "world.json").read_text())
+        self.detail = self.meta.get("detail", "standard")
         self.title = self.meta.get("title", name.title())
         self.attribution = self.meta.get("attribution", [])
         self.places = self.meta.get("places", [])
@@ -195,20 +280,26 @@ class RealWorld:
 
 
 def available_worlds() -> list[tuple[str, str]]:
-    """(name, title) for every world: real ones first."""
+    """(key, title) of the worlds on this computer: built in or downloaded, plus the test range."""
     out = []
-    if WORLDS_DIR.exists():
-        for f in sorted(WORLDS_DIR.iterdir()):
-            if (f / "world.json").exists() and (f / "height.npz").exists():
-                try:
-                    out.append((f.name, json.loads((f / "world.json").read_text()).get("title", f.name)))
-                except Exception:
-                    pass
+    for area, title in AREAS:
+        for size in SIZES:
+            for detail in DETAILS:
+                key = world_key(area, size, detail)
+                if world_folder(key) is not None:
+                    out.append((key, f"{title} ({size} km, {detail})"))
     return out + [(PROCEDURAL, ProceduralWorld.title)]
 
 
 def load_world(name: str | None = None):
-    names = [n for n, _ in available_worlds()]
-    if name is None or name not in names:
-        name = names[0]
-    return ProceduralWorld() if name == PROCEDURAL else RealWorld(name)
+    if name == PROCEDURAL:
+        return ProceduralWorld()
+    key = world_key(*parse_key(name or BUILT_IN))
+    folder = world_folder(key)
+    if folder is None:  # not on this computer: the built-in map (and say so - never mislabel it)
+        key, folder = BUILT_IN, world_folder(BUILT_IN)
+    if folder is None:
+        return ProceduralWorld()
+    w = RealWorld(key, folder)
+    w.name = key
+    return w
