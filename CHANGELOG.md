@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0
+- **Edit in 3-D:** click a part in the design studio's 3-D view to select it (it glows gold), and drag
+  the wing-tip, wing-root, tail and engine handles directly in 3-D.
+- **One-click fixes** for failed checks and unmet requirements (Fix buttons under the verdict; Undo
+  reverses them).
+- **Winch cable** laid out to just short of the far end of the runway (Lasham ~1.5 km); each winch
+  driver differs a little.
+
 ## 0.12.1
 - **Fixed: winch launches stalled the glider's wing** near the top, even before full rotation. The winch
   driver now holds launch speed (~1.6 x stall speed, about 105 km/h for a K-21) and eases the power as

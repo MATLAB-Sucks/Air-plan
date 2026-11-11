@@ -375,6 +375,10 @@ class DesignStudioWindow(QMainWindow):
         self.verdict_label.setWordWrap(True)
         self.verdict_label.setAlignment(Qt.AlignTop)
         vl.addWidget(self.verdict_label)
+        self.fix_box = QWidget()  # one-click fixes for failed checks
+        self.fix_layout = QVBoxLayout(self.fix_box)
+        self.fix_layout.setContentsMargins(0, 0, 0, 0)
+        vl.addWidget(self.fix_box)
         row = QHBoxLayout()
         self.fly_btn = QPushButton("✈ Fly it")
         self.fly_btn.setObjectName("primary")
@@ -467,6 +471,9 @@ class DesignStudioWindow(QMainWindow):
             self.part_box.blockSignals(False)
         self.rebuild_editors(fit=False)
         self._build_properties()
+        if getattr(self, "_3d_ready", False):
+            self._glow()
+            self.viewport.render()
 
     def _clear_form(self, form):
         while form.rowCount():
@@ -1127,6 +1134,194 @@ class DesignStudioWindow(QMainWindow):
         finally:
             self._side_handles = saved
 
+    # ------------------------------------------------------------ one-click fixes
+    def _update_fix_buttons(self) -> None:
+        from ..core.fixes import fixes_for
+        while self.fix_layout.count():
+            item = self.fix_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if self.verdict is None:
+            return
+        for problem, label, fn in fixes_for(self.verdict)[:5]:
+            b = QPushButton(f"🔧 Fix: {label}")
+            b.setToolTip(f"For “{problem}”. Undo (Ctrl+Z) if you don't like the result.")
+            b.clicked.connect(lambda _=False, fn=fn, label=label: self.apply_fix(fn, label))
+            self.fix_layout.addWidget(b)
+
+    def apply_fix(self, fn, label: str = "") -> None:
+        from PySide6.QtWidgets import QApplication
+        from ..core.fixes import apply_fix
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.params = apply_fix(fn, self.params, self.mission)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.rebuild_editors()
+        if hasattr(self, "_build_properties"):
+            self._build_properties()
+        self.schedule_analysis()
+        self.refresh_analysis() if hasattr(self, "refresh_analysis") else None
+        if hasattr(self, "status") and hasattr(self.status, "setText"):
+            self.status.setText(f"Applied: {label}")
+
+    # ------------------------------------------------------------ editing in 3-D
+    @staticmethod
+    def _part_of(comp) -> str | None:
+        from ..core.components import ComponentType as CT
+        cid, t = comp.id, comp.type
+        if cid.startswith("canard"):
+            return "canard"
+        if cid.startswith("boom"):
+            return "booms"
+        mapping = {CT.WING: "wing", CT.HORIZONTAL_TAIL: "htail", CT.VERTICAL_TAIL: "vtail",
+                   CT.FUSELAGE: "fuselage", CT.NACELLE: "engines"}
+        if t in mapping:
+            return mapping[t]
+        for prefix, part in (("wing", "wing"), ("htail", "htail"), ("vtail", "vtail"), ("fin", "vtail"),
+                             ("engine", "engines"), ("nacelle", "engines"), ("pylon", "engines"), ("prop", "engines"),
+                             ("gear", "gear"), ("fuselage", "fuselage")):
+            if cid.startswith(prefix):
+                return part
+        return None
+
+    def _setup_3d_editing(self) -> None:
+        if getattr(self, "_3d_ready", False):
+            return
+        try:
+            iren = self.viewport.vtk_widget.GetRenderWindow().GetInteractor()
+            style = iren.GetInteractorStyle()
+        except Exception:
+            return
+        if style is None:
+            return
+        from vtkmodules.vtkRenderingCore import vtkPropPicker
+        self._3d_ready, self._style3d, self._picker = True, style, vtkPropPicker()
+        self._drag3d, self._handle_actors, self._ambient = None, {}, {}
+        style.AddObserver("LeftButtonPressEvent", self._3d_press)
+        style.AddObserver("MouseMoveEvent", self._3d_move)
+        style.AddObserver("LeftButtonReleaseEvent", self._3d_release)
+
+    def _refresh_3d(self) -> None:
+        """Handles in 3-D (the same ones as the top view, sitting on the surface) and the selection glow."""
+        self._setup_3d_editing()
+        if not getattr(self, "_3d_ready", False):
+            return
+        from vtkmodules.vtkFiltersSources import vtkSphereSource
+        from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
+        ren = self.viewport.renderer
+        for a in self._handle_actors:
+            ren.RemoveActor(a)
+        self._handle_actors = {}
+        pts = []
+        for comp in self.design.components.values():
+            try:
+                pts.append(comp.world_mesh().points)
+            except Exception:
+                pass
+        P = np.vstack(pts) if pts else np.zeros((1, 3))
+        size = max(float(np.ptp(P[:, 0])), 1.0)
+        for item in self.top.scene().items():
+            if not isinstance(item, Handle) or not item.isVisible():
+                continue
+            x, y = item.pos().x(), item.pos().y()
+            near = (np.abs(P[:, 0] - x) < 0.02 * size + 0.3) & (np.abs(P[:, 1] - y) < 0.02 * size + 0.3)
+            z = float(P[near, 2].max()) + 0.01 * size if near.any() else 0.0
+            src = vtkSphereSource()
+            src.SetRadius(0.012 * size + 0.05)
+            src.SetCenter(x, y, z)
+            src.SetThetaResolution(16)
+            src.SetPhiResolution(12)
+            mp = vtkPolyDataMapper()
+            mp.SetInputConnection(src.GetOutputPort())
+            a = vtkActor()
+            a.SetMapper(mp)
+            c = item.brush().color()
+            a.GetProperty().SetColor(c.redF(), c.greenF(), c.blueF())
+            a.GetProperty().SetAmbient(0.6)
+            ren.AddActor(a)
+            self._handle_actors[a] = (item, src, z)
+        self._glow()
+        self.viewport.render()
+
+    def _glow(self) -> None:
+        """The selected part glows gold in 3-D."""
+        sel = getattr(self, "selected", None)
+        for cid, e in getattr(self.viewport.scene, "entries", {}).items():
+            prop = e.actor.GetProperty()
+            self._ambient.setdefault(cid, (prop.GetAmbient(), prop.GetAmbientColor()))
+            if sel and self._part_of(e.component) == sel:
+                prop.SetAmbientColor(1.0, 0.78, 0.25)
+                prop.SetAmbient(0.45)
+            else:
+                amb, col = self._ambient[cid]
+                prop.SetAmbient(amb)
+                prop.SetAmbientColor(*col)
+
+    def _event_pos(self):
+        return self.viewport.vtk_widget.GetRenderWindow().GetInteractor().GetEventPosition()
+
+    def _3d_press(self, obj, _evt):
+        x, y = self._event_pos()
+        ren = self.viewport.renderer
+        best = None  # handles win within 14 px of the click, whatever is behind them: easy to grab
+        for a, (item, src, z) in self._handle_actors.items():
+            c = src.GetCenter()
+            ren.SetWorldPoint(c[0], c[1], c[2], 1.0)
+            ren.WorldToDisplay()
+            d = ren.GetDisplayPoint()
+            dist = math.hypot(d[0] - x, d[1] - y)
+            if dist < 14 and (best is None or dist < best[0]):
+                best = (dist, a)
+        if best is not None:
+            self._drag3d = best[1]
+            return
+        if self._picker.PickProp(x, y, ren):
+            a = self._picker.GetViewProp()
+            if a in self._handle_actors:  # start dragging this handle (no camera rotation)
+                self._drag3d = a
+                return
+            for cid, e in self.viewport.scene.entries.items():
+                if e.actor is a:
+                    part = self._part_of(e.component)
+                    if part:
+                        self.select(part)
+                        self._glow()
+                    break
+        self._style3d.OnLeftButtonDown()
+
+    def _3d_move(self, obj, _evt):
+        if self._drag3d is None:
+            self._style3d.OnMouseMove()
+            return
+        item, src, z = self._handle_actors[self._drag3d]
+        x, y = self._event_pos()
+        ren = self.viewport.renderer
+        ray = []
+        for depth in (0.0, 1.0):
+            ren.SetDisplayPoint(x, y, depth)
+            ren.DisplayToWorld()
+            w = ren.GetWorldPoint()
+            ray.append(np.array(w[:3]) / (w[3] or 1.0))
+        p0, p1 = ray
+        if abs(p1[2] - p0[2]) < 1e-9:
+            return
+        t = (z - p0[2]) / (p1[2] - p0[2])
+        hit = p0 + t * (p1 - p0)  # where the mouse ray meets the handle's horizontal plane
+        new = item.on_drag(QPointF(float(hit[0]), float(hit[1])))
+        if new is not None:
+            src.SetCenter(new.x(), new.y(), z)
+        self.viewport.render()
+
+    def _3d_release(self, obj, _evt):
+        if self._drag3d is not None:
+            item = self._handle_actors[self._drag3d][0]
+            self._drag3d = None
+            if item.on_release:
+                item.on_release()
+            return
+        self._style3d.OnLeftButtonUp()
+
     def _released(self):
         self._dragging = False
         QTimer.singleShot(0, lambda: self.rebuild_editors(fit=False))
@@ -1200,6 +1395,8 @@ class DesignStudioWindow(QMainWindow):
             first = not hasattr(self, "_shown_span")
             self.design = AircraftDesign(self.params.copy(), self.name)
             self.viewport.show_design(self.design)
+            if getattr(self, "_drag3d", None) is None:
+                QTimer.singleShot(0, self._refresh_3d)  # 3-D handles + selection glow follow the design
             size = (round(self.params.wing.span), round(self.params.fuselage.length), self.params.configuration.layout)
             if first or size != self._shown_span:  # re-frame the 3-D view when the aircraft changes size
                 self._shown_span = size
@@ -1218,6 +1415,7 @@ class DesignStudioWindow(QMainWindow):
             self.wt_btn.setEnabled(False)
             return
         v = self.verdict
+        self._update_fix_buttons()
         colour = "#4caf50" if v.flies and v.meets_mission else ("#e8a33d" if v.flies else "#e0533d")
         rows = "".join(
             f"<tr><td style='color:{'#e8a33d' if c.ok and c.warning else '#4caf50' if c.ok else '#e0533d'}'>"

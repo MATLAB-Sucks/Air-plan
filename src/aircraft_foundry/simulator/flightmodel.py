@@ -621,9 +621,21 @@ class FlightSimulator:
         hdg = math.atan2(*(quat_to_dcm(self.state[6:10]) @ np.array([1.0, 0.0, 0.0]))[1::-1][::-1]) \
             if False else self.telemetry()["heading"] * D2R
         n, e = self.state[0], self.state[1]
-        winch = np.array([n + 1100 * math.cos(hdg), e + 1100 * math.sin(hdg), 0.0])
+        # The cable is laid out to just short of the far end of the runway (Lasham: ~1.5-1.6 km)
+        cable = 1100.0
+        for rw in getattr(self.terrain, "runways", ()) or ():
+            if rw.contains(n, e, 30.0):
+                along = rw.local(n, e)[0]
+                if abs(((rw.heading_deg - hdg / D2R) + 180) % 360 - 180) > 90:  # launching the other way
+                    along = rw.length - along
+                cable = max(rw.length - along - 80.0, 500.0)
+                break
+        winch = np.array([n + cable * math.cos(hdg), e + cable * math.sin(hdg), 0.0])
         winch[2] = -self.ground(winch[0], winch[1])
-        self.launch = {"kind": kind, "t0": self.time, "winch": winch, "heading": hdg}
+        # every winch driver (and day) differs a little: launch speed and power within +-8 %
+        driver = float(self._rng.uniform(0.92, 1.08)) if hasattr(self, "_rng") else 1.0
+        self.launch = {"kind": kind, "t0": self.time, "winch": winch, "heading": hdg, "cable": cable,
+                       "driver": driver}
         self.controls.brakes = False
         return True
 
@@ -652,12 +664,12 @@ class FlightSimulator:
             # full tension near the top would stall the wing at launch speed.
             md = self.m
             vs1 = math.sqrt(2 * m * G0 / (1.225 * md.S * md.CLmax))
-            v_target = max(1.6 * vs1, 25.0)
+            v_target = max(1.6 * vs1, 25.0) * (0.96 + 0.04 * L.get("driver", 1.0))
             ease = max(0.25, math.cos(math.radians(max(elev, 0.0))) ** 1.5)
             L["v_target"], L["cable_deg"] = v_target, elev
             # baseline power eases off as the cable steepens; a speed deficit is answered firmly (up to 1.5 W,
             # just under the weak link)
-            tension = m * G0 * float(np.clip(ease + 0.25 * (v_target - V), 0.0, 1.5))
+            tension = m * G0 * float(np.clip(ease * L.get("driver", 1.0) + 0.25 * (v_target - V), 0.0, 1.5))
             if self.last_forces.get("stalled") and agl > 20:
                 L["stall_t"] = L.get("stall_t", self.time)
                 if self.time - L["stall_t"] > 0.8:  # a stalled glider on the cable: the pilot releases

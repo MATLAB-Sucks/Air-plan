@@ -643,3 +643,74 @@ def test_glider_cockpit_view_and_coach(app):
     app.processEvents()
     assert not w._inside and not w.panel.isVisible() and w.hud.GetVisibility()
     w.close()
+
+
+def test_studio_3d_editing_and_fix_buttons(app):
+    import numpy as np
+    from aircraft_foundry.app.design_studio import DesignStudioWindow, Handle
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.resize(1500, 950)
+    w.show()
+    for _ in range(10):
+        app.processEvents()
+    w.refresh_analysis()
+    w.select("wing")
+    for _ in range(5):
+        app.processEvents()
+    w._refresh_3d()
+    assert w._3d_ready and w._handle_actors  # the top view's handles, in 3-D
+    ren = w.viewport.renderer
+    iren = w.viewport.vtk_widget.GetRenderWindow().GetInteractor()
+
+    def screen(pt):
+        ren.SetWorldPoint(*pt, 1.0)
+        ren.WorldToDisplay()
+        d = ren.GetDisplayPoint()
+        return int(d[0]), int(d[1])
+    # drag the wing-tip handle outwards in 3-D: the span changes
+    tip = max((a for a, (item, src, z) in w._handle_actors.items() if item.shape_kind == "circle"),
+              key=lambda a: w._handle_actors[a][0].pos().y())  # the wing-tip corner: span and sweep
+    item, src, z = w._handle_actors[tip]
+    span0 = w.params.wing.span
+    x0, y0 = screen((item.pos().x(), item.pos().y(), z))
+    x1, y1 = screen((item.pos().x(), item.pos().y() + 3.0, z))
+    iren.SetEventPosition(x0, y0)
+    w._3d_press(None, None)
+    assert w._drag3d is tip
+    iren.SetEventPosition(x1, y1)
+    w._3d_move(None, None)
+    w._3d_release(None, None)
+    for _ in range(5):
+        app.processEvents()
+    assert abs(w.params.wing.span - span0) > 0.5
+    # click on the fin in 3-D: it becomes the selected part
+    fin = next(e for e in w.viewport.scene.entries.values() if w._part_of(e.component) == "vtail")
+    b = fin.actor.GetBounds()
+    spot = None  # a pixel on the fin's surface, away from any handle
+    for fx in np.linspace(0.2, 0.8, 7):
+        for fz in np.linspace(0.2, 0.8, 7):
+            px = screen((b[0] + fx * (b[1] - b[0]), (b[2] + b[3]) / 2, b[4] + fz * (b[5] - b[4])))
+            near_handle = any(np.hypot(*(np.array(screen(src.GetCenter())) - px)) < 16
+                              for _, src, _ in w._handle_actors.values())
+            if not near_handle and w._picker.PickProp(*px, ren) and w._picker.GetViewProp() is fin.actor:
+                spot = px
+                break
+        if spot:
+            break
+    assert spot is not None
+    iren.SetEventPosition(*spot)
+    w._3d_press(None, None)
+    w._3d_release(None, None)
+    assert w.selected == "vtail"
+    # break the design: fix buttons appear and repair it
+    w.params.set("vtail.span", w.params.vtail.span * 0.5)
+    w.refresh_analysis()
+    buttons = [w.fix_layout.itemAt(i).widget() for i in range(w.fix_layout.count())]
+    assert any("fin" in b.text().lower() for b in buttons)
+    next(b for b in buttons if "fin" in b.text().lower()).click()
+    w.refresh_analysis()
+    assert all(c.ok for c in w.verdict.checks if c.name == "Stable in yaw")
+    w.close()

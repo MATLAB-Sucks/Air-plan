@@ -2,6 +2,23 @@
 
 What each version does, and the problems known in it (with where they were fixed). The app shows the same notes in its update banner and **Help → Version history**.
 
+## 0.13.0 — 2026-11-10
+
+**Edit in 3-D, one-click fixes, runway-length winch cable.**
+
+What it does:
+
+- Design studio in 3-D: click a part in the 3-D view to select it (it glows gold); drag the same handles as the top view (wing tip, wing root, tail, engines) directly in 3-D.
+- One-click fixes: failed checks and unmet requirements get Fix buttons (move the wing for stability, enlarge the fin / tailplane, bigger ailerons or elevator, more thrust or wing area, strengthen the structure...); Undo reverses them.
+- Winch cable laid out to just short of the far end of the runway (Lasham: ~1.5 km), and every winch driver differs a little.
+
+Known problems:
+
+- Winch launches reach ~560 m (1,840 ft) in still air with the full Lasham cable - probably higher than typical (cable weight and sag are not modelled yet); the driver variation hardly changes the height.
+- Grabbing a 3-D handle does not yet select its part.
+- K-21 preset glides 32:1 (real 34:1).
+- The San Francisco Bay 40 km standard map package is still missing.
+
 ## 0.12.1 — 2026-11-10
 
 **Winch launches no longer stall the wing; cockpit view with instruments.**
