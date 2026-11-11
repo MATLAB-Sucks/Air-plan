@@ -533,10 +533,16 @@ def _launch(md, W, kind, want):
         agl = sim.height_above_ground()
         if kind == "aerotow":
             target = 6.0
-        else:  # lift off, then rotate progressively into the full climb from ~15 m
-            if agl > 15 and "ramp" not in st:
+        else:  # lift off, rotate to the full climb (45 deg), keep the speed, lower the nose near the top
+            if agl > 10 and "ramp" not in st:
                 st["ramp"] = sim.time
-            target = 10.0 if "ramp" not in st else min(35.0, 10.0 + 4.0 * (sim.time - st["ramp"]))
+            target = 10.0 if "ramp" not in st else min(45.0, 10.0 + 6.0 * (sim.time - st["ramp"]))
+            if t.get("cable_deg", 0) > 25:
+                target -= 0.8 * (t["cable_deg"] - 25)
+            if t.get("launch_v_target") and t["airspeed"] < 0.9 * t["launch_v_target"]:
+                target -= 10
+            if sim.launch is not None and agl > 5:
+                st["max_cl"] = max(st.get("max_cl", 0.0), sim.last_forces["cl"] / md.CLmax)
         sim.controls.elevator = max(-1, min(1, 0.04 * (target - t["pitch"]) - 1.5 * sim.state[11]))
         sim.controls.aileron = max(-1, min(1, -0.05 * t["roll"] - 0.3 * sim.state[10]))
         sim.step(1 / 100)
@@ -544,7 +550,10 @@ def _launch(md, W, kind, want):
         assert not sim.failure, (kind, sim.failure_msg)  # the tail never breaks on a launch
         if (sim.launch is None and sim.time > 8) or sim.crashed:
             break
-    assert not sim.crashed and peak > want and "released" in getattr(sim, "launch_result", ""), (kind, peak)
+    assert not sim.crashed and peak > want and "released at the top" in getattr(sim, "launch_result", ""), \
+        (kind, peak, getattr(sim, "launch_result", ""))
+    if kind == "winch":  # a normal 45-degree winch launch never stalls the wing
+        assert st["max_cl"] < 0.85, st["max_cl"]
     return sim
 
 

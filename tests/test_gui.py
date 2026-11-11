@@ -611,3 +611,35 @@ def test_update_banner_whats_new_recent_and_screenshot(app, tmp_path, monkeypatc
     assert __import__("pathlib").Path(shot).exists()
     w.dirty = False
     w.close()
+
+
+def test_glider_cockpit_view_and_coach(app):
+    import re
+    from aircraft_foundry.core.design import AircraftDesign
+    from aircraft_foundry.core.evaluator import evaluate
+    from aircraft_foundry.core.synthesis import k21_mission, k21_preset
+    from aircraft_foundry.simulator.window import SimulatorWindow
+    m = k21_mission()
+    p = k21_preset(m)
+    w = SimulatorWindow(AircraftDesign(p, "K-21"), m, evaluate(p, m))
+    w.timer.stop()
+    w.show()
+    app.processEvents()
+    w.coach.update()
+    assert "ready to launch" in w.coach_view.text()  # glider guidance, not "gear up"
+    w.camera_mode = "cockpit"
+    w.sim.start_launch("winch")
+    for _ in range(300):
+        w.sim.step(1 / 100)
+    w.render_frame()
+    for _ in range(3):
+        app.processEvents()
+    assert w._inside and w.panel.isVisible() and w.panel.parentWidget() is w._view_box  # below the view
+    assert not w.hud.GetVisibility()
+    w.coach.update()
+    assert "Winch launch" in re.sub("<[^>]+>", "", w.coach_view.text())
+    w.camera_mode = "chase"
+    w.render_frame()
+    app.processEvents()
+    assert not w._inside and not w.panel.isVisible() and w.hud.GetVisibility()
+    w.close()

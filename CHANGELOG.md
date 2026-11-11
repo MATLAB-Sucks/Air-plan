@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.1
+- **Fixed: winch launches stalled the glider's wing** near the top, even before full rotation. The winch
+  driver now holds launch speed (~1.6 x stall speed, about 105 km/h for a K-21) and eases the power as
+  the cable steepens; if the glider does stall on the cable, the cable is released.
+- **LOW SPEED - LOWER THE NOSE** warning on the winch.
+- **Cockpit view** from the pilot's seat with an instrument panel (airspeed, artificial horizon,
+  altimeter, variometer with 20 s average, compass, slip ball, g) and a yaw string for gliders.
+- **Glider coaching** for launch, winch technique, soaring and landing.
+
 ## 0.12.0
 - **Update banner:** the app checks at every start and every 4 hours, and shows a banner with the new
   version's summary and number of known problems (What's new & update / Update now / Later).

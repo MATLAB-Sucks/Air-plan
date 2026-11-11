@@ -2,6 +2,23 @@
 
 What each version does, and the problems known in it (with where they were fixed). The app shows the same notes in its update banner and **Help → Version history**.
 
+## 0.12.1 — 2026-11-10
+
+**Winch launches no longer stall the wing; cockpit view with instruments.**
+
+What it does:
+
+- Fixed: gliders stalled near the top of a winch launch even before full rotation. The winch driver now holds launch speed (1.6 x stall speed, ~105 km/h for a K-21) and eases the power as the cable steepens; a stall on the cable releases it.
+- A LOW SPEED - LOWER THE NOSE warning on the winch.
+- Cockpit view from the pilot's seat (fuselage hidden, wings visible) with an instrument panel: airspeed, artificial horizon, altimeter, variometer (with 20 s average), compass, slip ball and g; a yaw string for gliders.
+- Glider coaching: launch, winch technique, soaring, circuit and landing (instead of powered-aircraft steps).
+
+Known problems:
+
+- Holding a fixed 45 degree attitude all the way to the top of a winch launch still bleeds speed (as in real life): lower the nose as the cable steepens.
+- K-21 preset glides 32:1 (real 34:1).
+- The San Francisco Bay 40 km standard map package is still missing.
+
 ## 0.12.0 — 2026-11-10
 
 **Update banner, version history, undo / redo, faster builds.**
@@ -16,6 +33,7 @@ What it does:
 
 Known problems:
 
+- Gliders could stall near the top of a winch launch even before full rotation (the winch pulled harder as the cable steepened). Fixed in 0.12.1.
 - Carried over from 0.11.1: winch launch speed can peak at 135-145 km/h; K-21 preset glides 32:1 (real 34:1).
 - The San Francisco Bay 40 km standard map package is still missing.
 

@@ -517,6 +517,8 @@ class FlightSimulator:
         if self.launch is not None and self.launch.get("done"):
             if self.launch.get("weak"):
                 self.release("weak link broke - land ahead or fly a short circuit")
+            elif self.launch.get("stalled_release"):
+                self.release("released after a stall on the cable - lower the nose")
             else:
                 self.release("released at the top")
         p_ = self.state[0:3]
@@ -645,8 +647,24 @@ class FlightSimulator:
             if dist < 60 or (agl > 40 and elev > 70) or ahead < 0 or agl > 600:
                 L["done"] = True
                 return np.zeros(3)
-            # the winch driver regulates cable tension to hold launch speed (~95-110 km/h)
-            tension = m * G0 * float(np.clip(1.0 + 0.15 * (28.0 - V), 0.0, 1.4))  # backs right off when fast
+            # The winch driver holds launch speed (~1.6 x the 1-g stall speed: ~105 km/h for a K-21) and eases
+            # the power off as the cable steepens: the cable's downward pull adds to the wing's load, so
+            # full tension near the top would stall the wing at launch speed.
+            md = self.m
+            vs1 = math.sqrt(2 * m * G0 / (1.225 * md.S * md.CLmax))
+            v_target = max(1.6 * vs1, 25.0)
+            ease = max(0.25, math.cos(math.radians(max(elev, 0.0))) ** 1.5)
+            L["v_target"], L["cable_deg"] = v_target, elev
+            # baseline power eases off as the cable steepens; a speed deficit is answered firmly (up to 1.5 W,
+            # just under the weak link)
+            tension = m * G0 * float(np.clip(ease + 0.25 * (v_target - V), 0.0, 1.5))
+            if self.last_forces.get("stalled") and agl > 20:
+                L["stall_t"] = L.get("stall_t", self.time)
+                if self.time - L["stall_t"] > 0.8:  # a stalled glider on the cable: the pilot releases
+                    L["done"], L["stalled_release"] = True, True
+                    return np.zeros(3)
+            else:
+                L.pop("stall_t", None)
             if tension * ramp > 1.6 * m * G0:  # weak link (well above normal launch loads)
                 L["done"], L["weak"] = True, True
                 return np.zeros(3)
@@ -786,7 +804,9 @@ class FlightSimulator:
         return {"time": self.time, "airspeed": f.get("V", 0.0), "mach": f.get("mach", 0.0), "altitude": -s[2],
                 "vs": -v_ned[2], "alpha": f.get("alpha", 0.0) / D2R, "beta": f.get("beta", 0.0) / D2R,
                 "pitch": theta / D2R, "roll": phi / D2R, "heading": (psi / D2R) % 360, "load_factor": n_z,
-                "throttle": self.controls.throttle, "reheat": f.get("reheat", False), "stalled": f.get("stalled", False), "updraft": self.updraft, "launch": (self.launch or {}).get("kind", ""), "buffet": float(np.clip((self._near_stall - 0.88) / 0.12, 0, 1)),
+                "throttle": self.controls.throttle, "reheat": f.get("reheat", False), "stalled": f.get("stalled", False), "updraft": self.updraft, "launch": (self.launch or {}).get("kind", ""),
+                "launch_v_target": (self.launch or {}).get("v_target", 0.0), "cable_deg": (self.launch or {}).get("cable_deg", 0.0),
+                "buffet": float(np.clip((self._near_stall - 0.88) / 0.12, 0, 1)),
                 "on_ground": f.get("on_ground", False), "ground_speed": float(np.hypot(v_ned[0], v_ned[1])),
                 "fuel_kg": self.fuel, "fuel_flow_kgh": self.fuel_flow * 3600, "mass_kg": self.mass,
                 "distance_km": self.distance_flown / 1000, "stress": self.max_stress,

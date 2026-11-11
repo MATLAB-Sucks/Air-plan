@@ -350,7 +350,13 @@ class SimulatorWindow(QMainWindow):
         dock.setMinimumWidth(430)
         dock.setFeatures(QDockWidget.NoDockWidgetFeatures)
         self.addDockWidget(Qt.RightDockWidgetArea, dock)
-        self.setCentralWidget(self.vtk_widget)
+        # the 3-D view in a container, so the cockpit instrument panel can sit below it (never on top of OpenGL)
+        self._view_box = QWidget()
+        vb = QVBoxLayout(self._view_box)
+        vb.setContentsMargins(0, 0, 0, 0)
+        vb.setSpacing(0)
+        vb.addWidget(self.vtk_widget, 1)
+        self.setCentralWidget(self._view_box)
         self._show_modes()
         self.restart(start)
         self._panel_t = 0.0
@@ -1058,20 +1064,52 @@ class SimulatorWindow(QMainWindow):
             eye, focal = pos + side * 1.8 * L + up * 0.2 * L, pos
         elif self.camera_mode == "tower":
             eye, focal = np.array([110.0, 600.0, 30.0]), pos
-        else:  # cockpit
-            nose = M[:3, :3] @ np.array([0.08 * self.params.fuselage.length, 0, 0.35 * self.params.fuselage.diameter]) \
-                + M[:3, 3]
-            eye, focal = nose, nose + fwd * 100
+        else:  # cockpit: the pilot's eye, under the canopy / on the flight deck
+            fp = self.params.fuselage
+            L_, D_ = fp.length, fp.diameter
+            nose_len = fp.nose_fraction * L_
+            x_eye = nose_len * 0.9 + 0.45 if D_ < 2.0 else 0.75 * nose_len
+            if getattr(self, "_arr", None) is None:
+                from ..geometry.arrangement import Arrangement
+                self._arr = Arrangement(self.params)
+            arr = self._arr
+            cz = float(arr.fuselage.centre_z(np.array([x_eye]))[0]) if arr is not None else 0.0
+            hh = float(arr.fuselage.half_height(np.array([x_eye]))[0]) if arr is not None else D_ / 2
+            head = M[:3, :3] @ np.array([x_eye, 0, cz + 0.45 * hh]) + M[:3, 3]
+            eye, focal = head, head + fwd * 100
             up = M[:3, :3] @ np.array([0, 0, 1.0])
         eye = np.array(eye, float)
-        eye[2] = max(eye[2], self.sim.ground(eye[1], eye[0]) + 3.0)  # never put the camera under the hills
+        low = 0.6 if self.camera_mode == "cockpit" else 3.0  # the pilot's eye may be close to the ground
+        eye[2] = max(eye[2], self.sim.ground(eye[1], eye[0]) + low)  # never put the camera under the hills
+        self._cockpit_visibility(self.camera_mode == "cockpit")
         cam.SetPosition(*eye)
         cam.SetFocalPoint(*focal)
         cam.SetViewUp(*up)
         cam.SetViewAngle(50 if self.camera_mode == "cockpit" else 35)
         cam.SetClippingRange(0.5, 150000)
 
+    def _cockpit_visibility(self, inside: bool) -> None:
+        """From the seat you look out through the canopy: hide the own fuselage and glazing, show the wings."""
+        if getattr(self, "_inside", None) == inside:
+            return
+        self._inside = inside
+        for k, cid in enumerate(self.part_ids):
+            actor = self.parts[k][0]
+            if cid.startswith(("fuselage", "detail")) and self.parts[k][1] != "debris":
+                actor.SetVisibility(not inside)
+        self.hud.SetVisibility(not inside)
+        if inside and getattr(self, "panel", None) is None:
+            # below the 3-D view in the layout, like a real panel under the windscreen
+            # (never painted on top of the OpenGL view)
+            from .cockpit import InstrumentPanel
+            self.panel = InstrumentPanel()
+            self._view_box.layout().addWidget(self.panel)
+        if getattr(self, "panel", None) is not None:
+            self.panel.setFixedHeight(max(int(self._view_box.height() * 0.24), 150) + 34)
+            self.panel.setVisible(inside)
+
     def _update_hud(self):
+        warn: list = []  # filled below when there is something to warn about
         t = self.sim.telemetry()
         c = self.sim.controls
         if self.sim.time - self._boom_t > 0.5:
@@ -1131,6 +1169,9 @@ class SimulatorWindow(QMainWindow):
         if self.ap.engaged:
             lines.append(f"A/P {self.ap.status[:70]}")
         self.hud.SetInput("\n".join(lines))
+        if getattr(self, "_inside", False) and getattr(self, "panel", None) is not None:
+            avg = sum(self._vario) / len(self._vario) if self._vario else 0.0
+            self.panel.set_state({**t, "time": self.sim.time}, self.model.glider, avg, list(warn))
         warn = []
         if self.sim.failure_msg:
             warn.append(self.sim.failure_msg)
@@ -1141,6 +1182,9 @@ class SimulatorWindow(QMainWindow):
         else:
             if t["stalled"] and not t["on_ground"] and t["airspeed"] > 15:  # no "stall" while parked
                 warn.append("STALL")
+            if self.model.glider and t.get("launch") == "winch" and t.get("launch_v_target") \
+                    and t["airspeed"] < 0.88 * t["launch_v_target"] and not t["on_ground"]:
+                warn.append("LOW SPEED – LOWER THE NOSE")
             if not t["on_ground"] and self.sim.height_above_ground() < 150 and t["vs"] < -8:
                 warn.append("SINK RATE — PULL UP")
             if self.sim.stress["q"] > 0.64:
@@ -1298,11 +1342,37 @@ class CircuitCoach:
     def reset(self, airborne_start: bool = False):
         self.phase = 2 if airborne_start else 0
 
+    @staticmethod
+    def _glider_tip(sim, t, agl) -> str:
+        """Glider guidance: launch, the winch climb, soaring, circuit and landing."""
+        kmh = t["airspeed"] * 3.6
+        if t["on_ground"] and sim.launch is None and kmh < 20:
+            return ("<b>Glider — ready to launch</b><br>Choose winch or aerotow under <b>Glider</b>, then press "
+                    "<b>L</b>. A wing runner holds the wings level for the first few seconds.")
+        if sim.launch is not None and sim.launch["kind"] == "winch":
+            vt = t.get("launch_v_target", 0) * 3.6
+            return ("<b>Winch launch</b><br>Lift off gently, then rotate progressively to about 40–45° once "
+                    f"clear of the ground. Keep about <b>{vt:.0f} km/h</b>: if slow, lower the nose. Near the top "
+                    "ease the nose down; the hook back-releases (or press <b>L</b>).")
+        if sim.launch is not None:
+            return ("<b>Aerotow</b><br>Stay behind and slightly above the tug's wake; the tow releases at "
+                    "~600 m (or press <b>L</b>).")
+        if agl > 300:
+            return ("<b>Soaring</b><br>Fly at best-glide speed between thermals; when the vario shows lift, "
+                    "circle at 30–45° bank and centre on the strongest part. Keep within gliding range of an "
+                    "airfield. <b>F1</b> lists the controls.")
+        return ("<b>Circuit and landing</b><br>Join the circuit by ~300 m, approach at about 90–100 km/h, use "
+                "the airbrakes (<b>F</b>) to control the approach angle, round out and hold off just above the "
+                "ground.")
+
     def update(self):
         w = self.win
         sim = w.sim
         t = sim.telemetry()
         agl = sim.height_above_ground()
+        if w.model.glider and not (sim.failure_msg or sim.crashed):
+            w.coach_view.setText(self._glider_tip(sim, t, agl))
+            return
         ap = w.approach_info()
         rw = ap["runway"]
         vr = 1.1 * w.vref() / 1.23 * 1.15
