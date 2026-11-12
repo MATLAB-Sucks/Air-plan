@@ -576,3 +576,45 @@ def test_gliders_have_glider_wheels_and_the_k21_preset():
     W = load_world("lasham-40-standard")
     _launch(md, W, "winch", 200)
     _launch(md, W, "aerotow", 550)
+
+
+def test_motor_glider_sustainer():
+    from aircraft_foundry.core.synthesis import duo_discus_t_mission, duo_discus_t_preset
+    from aircraft_foundry.core.verdict import flight_verdict
+    from aircraft_foundry.simulator.world import load_world
+    m = duo_discus_t_mission()
+    p = duo_discus_t_preset(m)
+    ev = evaluate(p, m)
+    M = ev.metrics
+    assert p.wing.span == pytest.approx(20.0) and M["motor"] == "sustainer" and ev.weights["glider_motor"] > 20
+    assert M["powered_climb_ms"] >= 0.5 and 33 < M["best_ld"] < 50 and ev.feasible and flight_verdict(p, m, ev).flies
+    md = build_aero_model(p, m, ev)
+    assert md.motor_kw == pytest.approx(18.0)
+    W = load_world("lasham-40-standard")
+
+    def rate(actions):
+        sim = FlightSimulator(md, W)
+        sim.start_in_flight(26, 1500)
+
+        def fly(sec):
+            for _ in range(int(sec * 100)):
+                t = sim.telemetry()
+                sim.controls.elevator = max(-1, min(1, -0.05 * (26 - t["airspeed"]) - 1.0 * sim.state[11]))
+                sim.controls.aileron = max(-1, min(1, -0.05 * t["roll"] - 0.3 * sim.state[10]))
+                sim.step(1 / 100)
+        for a in actions:
+            sim.motor_toggle()
+            fly(9 if a == "extend" else 0.5)
+        h0 = sim.telemetry()["altitude"]
+        fly(30)
+        return (sim.telemetry()["altitude"] - h0) / 30, sim
+    clean, _ = rate([])
+    stopped, _ = rate(["extend"])
+    running, sim = rate(["extend", "start"])
+    assert running > 0.4 and stopped < clean - 0.2 and sim.motor_state == "running"  # out but stopped costs height
+    sim.motor_toggle()
+    assert sim.motor_state == "stopped"
+    sim.motor_toggle()
+    for _ in range(900):
+        sim.step(1 / 100)
+    assert sim.motor_state == "retracted"

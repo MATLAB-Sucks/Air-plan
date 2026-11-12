@@ -63,6 +63,24 @@ def build_details(arr: Arrangement) -> list[Component]:
             canopy = [_patch(fus, nose + 0.05 * L, nose + 0.22 * L, math.radians(35), math.radians(145), 1,
                              nx=5, nt=10)]
             comps.append(Component("detail.canopy", CT.DETAIL, "Canopy", canopy, source_groups=("fuselage",)))
+    motor = getattr(arr.params.engines, "glider_motor", "none")
+    if arr.params.configuration.propulsion == "none" and motor != "none":
+        # retractable engine pylon behind the cockpit, propeller on top (shown extended)
+        nose = arr.params.fuselage.nose_fraction * L
+        xp = nose + 0.28 * L
+        top = float(fus.centre_z(np.array([xp]))[0] + fus.half_height(np.array([xp]))[0])
+        hgt = 0.75 + (0.15 if motor == "self_launch" else 0.0)
+
+        def rect(z, w, d):
+            return np.array([[xp - d, -w, z], [xp + d, -w, z], [xp + d, w, z], [xp - d, w, z]])
+        pylon = Loft([rect(top - 0.05, 0.05, 0.16), rect(top + hgt, 0.035, 0.09)], smooth=False)
+        rp = 0.62 if motor == "sustainer" else 0.8  # propeller radius
+        blade = Loft([np.array([[xp - 0.12, -rp, top + hgt - 0.05], [xp - 0.12, rp, top + hgt - 0.05],
+                                [xp - 0.12, rp, top + hgt + 0.05], [xp - 0.12, -rp, top + hgt + 0.05]]),
+                      np.array([[xp - 0.10, -rp, top + hgt - 0.05], [xp - 0.10, rp, top + hgt - 0.05],
+                                [xp - 0.10, rp, top + hgt + 0.05], [xp - 0.10, -rp, top + hgt + 0.05]])], smooth=False)
+        comps.append(Component("detail.motor", CT.DETAIL, f"Glider motor ({motor.replace('_', '-')}) pylon and propeller",
+                               [pylon, blade], source_groups=("engines", "fuselage")))
     intakes = []
     for e in arr.engines:
         if e.prop_diameter > 0:

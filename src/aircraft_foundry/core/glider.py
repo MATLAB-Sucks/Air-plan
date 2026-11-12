@@ -31,6 +31,7 @@ def glider_mission(**overrides) -> MissionRequirements:
 
 
 class GliderPolar:
+    MOTOR_DCD = 0.008  # extended pylon + propeller (~0.13 m² drag area), on the wing area
     """Sailplane drag polar: laminar-flow wing and tails, mostly laminar polished fuselage,
     near-elliptic span loading, profile drag rising with lift.  cd(cl, mach) -> (cd, cd0)."""
 
@@ -69,9 +70,13 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
               "horizontal_tail": 0.04 * empty * st.tail_strength ** 0.45,
               "vertical_tail": 0.04 * empty * st.tail_strength ** 0.45,
               "main_gear": 0.04 * empty * st.gear_strength ** 0.7, "systems_and_equipment": 0.08 * empty}
+    motor = getattr(p.engines, "glider_motor", "none")
+    kw = float(getattr(p.engines, "glider_motor_kw", 0.0)) or {"sustainer": 18.0, "self_launch": 50.0}.get(motor, 0.0)
+    if motor != "none":  # engine, pylon, propeller, extension mechanism (~1.3 kg/kW + 14 kg) and its fuel
+        groups["glider_motor"] = 14.0 + 1.3 * kw
     weights = dict(groups)
     weights["payload"] = m.payload_kg + m.crew_kg
-    weights["fuel"] = 0.0
+    weights["fuel"] = {"sustainer": 12.0, "self_launch": 25.0}.get(motor, 0.0) * 0.72
     mass = sum(weights.values())
     W = mass * G0
     # ---------------- glide polar (the design's own drag build-up), sea level
@@ -88,12 +93,20 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
     min_sink, v_min_sink = float(sink[j]), float(math.sqrt(2 * W / (rho * S * cls[j])))
     clmax = 1.35 + 4.0 * p.wing.camber
     v_stall = math.sqrt(2 * W / (rho * S * clmax))
+    # ---------------- powered climb (engine extended: its pylon and propeller add drag)
+    climb = 0.0
+    if motor != "none":
+        v_c = 1.25 * math.sqrt(2 * W / (rho * S * 1.0))
+        cl_c = 2 * W / (rho * S * v_c ** 2)
+        drag = 0.5 * rho * v_c ** 2 * S * (polar.cd(cl_c)[0] + GliderPolar.MOTOR_DCD)
+        climb = (0.62 * kw * 1000 - drag * v_c) / W
     # ---------------- balance and static margin (as for powered aircraft)
     wx = arr.x_wing_le if hasattr(arr, "x_wing_le") else p.wing.x_position * fus.length
     x_wing_cg = arr.x_ac_wing + 0.15 * mac
     stations = {"wing": x_wing_cg, "fuselage": 0.42 * fus.length, "horizontal_tail": fus.length * 0.95,
                 "vertical_tail": fus.length * 0.93, "main_gear": arr.x_ac_wing - 0.2 * mac,
-                "systems_and_equipment": 0.3 * fus.length, "payload": 0.22 * fus.length, "fuel": x_wing_cg}
+                "systems_and_equipment": 0.3 * fus.length, "payload": 0.22 * fus.length, "fuel": x_wing_cg,
+                "glider_motor": x_wing_cg + 0.4}
     x_cg = sum(weights[k_] * stations[k_] for k_ in weights) / mass
     a_w = aero.lift_curve_slope(AR, 0.1, w.sweep_at(0.5))
     deps = min(2 * a_w / (math.pi * AR), 0.6)
@@ -123,6 +136,10 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
             Constraint("Static margin", sm, lower=0.04, upper=0.35),
             Constraint("Horizontal tail volume", vh, lower=0.35),
             Constraint("Vertical tail volume", vv, lower=0.015)]
+    if motor == "self_launch":
+        cons.append(Constraint("Powered climb", climb, lower=1.5, unit="m/s"))  # enough to self-launch
+    elif motor == "sustainer":
+        cons.append(Constraint("Powered climb", climb, lower=0.5, unit="m/s"))  # enough to get home
     ignored = ignored_requirements(m)
     for c in cons:
         if REQUIREMENT_OF.get(c.name) in ignored:
@@ -136,8 +153,10 @@ def evaluate_glider(p: AircraftParameters, m: MissionRequirements):
                "wing_failure_g": st.limit_load_factor * st.safety_factor * st.wing_strength,
                "vh": vh, "vv": vv,
                # never-exceed speed: gliders are cleared to roughly 250-280 km/h (K-21: 280)
-               "vne_ms": 77.8 * min(1.0, (st.limit_load_factor / 6.5) ** 0.25)}
-    notes = [f"Glider: best glide {best_ld:.0f}:1 at {v_best * 3.6:.0f} km/h, minimum sink {min_sink:.2f} m/s at "
+               "vne_ms": 77.8 * min(1.0, (st.limit_load_factor / 6.5) ** 0.25),
+               "motor": motor, "motor_kw": kw, "powered_climb_ms": climb}
+    notes = ([f"Motor: {motor.replace('_', '-')} {kw:.0f} kW, powered climb {climb:.1f} m/s."] if motor != "none" else []) + \
+        [f"Glider: best glide {best_ld:.0f}:1 at {v_best * 3.6:.0f} km/h, minimum sink {min_sink:.2f} m/s at "
              f"{v_min_sink * 3.6:.0f} km/h, stall {v_stall * 3.6:.0f} km/h, wing loading {mass / S:.0f} kg/m²."]
     ok = all(c.satisfied for c in cons)
     return Evaluation(True, mass * (1 + 4 * penalty), metrics, cons, weights,
@@ -218,6 +237,39 @@ def k21_preset(mission: MissionRequirements | None = None) -> AircraftParameters
                  "gear.layout": "glider_nose"}.items():
         _set(p, k, v)
     best = None  # re-balance for the two-seat cockpit
+    for xp in np.linspace(0.22, 0.42, 21):
+        _set(p, "wing.x_position", float(xp))
+        ev = evaluate_glider(p, mission)
+        if ev.converged:
+            d = abs(ev.metrics["static_margin"] - 0.15)
+            if best is None or d < best[0]:
+                best = (d, float(xp))
+    if best:
+        _set(p, "wing.x_position", best[1])
+    return p
+
+
+
+def duo_discus_t_mission() -> MissionRequirements:
+    return glider_mission(name="Duo Discus T (two-seat, sustainer)", payload_kg=200.0, max_span_m=20.0, g_limit=5.3)
+
+
+def duo_discus_t_preset(mission: MissionRequirements | None = None) -> AircraftParameters:
+    """Schempp-Hirth Duo Discus T-like: 20 m two-seater, 16.4 m² (AR 24.4), T-tail, sustainer engine
+    (~18 kW on a retracting pylon), 750 kg maximum, +5.3 / -2.65 g, VNE ~250 km/h.  Real Duo Discus:
+    ~45:1 best glide, ~0.58 m/s minimum sink."""
+    from .synthesis import _C, _set
+    mission = mission or duo_discus_t_mission()
+    p = size_glider(mission, _C("none", "wing", "t_tail", "mid"))
+    span, area = 20.0, 16.4
+    root = 2 * area / (span * (1 + 0.35))
+    for k, v in {"wing.span": span, "wing.root_chord": root, "wing.taper_ratio": 0.35, "wing.dihedral_deg": 3.0,
+                 "wing.tc_root": 0.155, "wing.tc_tip": 0.13, "wing.camber": 0.035,
+                 "fuselage.length": 8.6, "fuselage.diameter": 0.78, "htail.span": 3.2, "htail.root_chord": 0.62,
+                 "vtail.span": 1.5, "vtail.root_chord": 1.2, "gear.layout": "glider_tail",
+                 "engines.glider_motor": "sustainer", "engines.glider_motor_kw": 18.0}.items():
+        _set(p, k, v)
+    best = None
     for xp in np.linspace(0.22, 0.42, 21):
         _set(p, "wing.x_position", float(xp))
         ev = evaluate_glider(p, mission)

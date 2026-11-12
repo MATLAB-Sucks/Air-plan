@@ -2,6 +2,26 @@
 
 What each version does, and the problems known in it (with where they were fixed). The app shows the same notes in its update banner and **Help → Version history**.
 
+## 0.14.0 — 2026-11-11
+
+**Motor gliders (sustainer and self-launch), Duo Discus T preset, speed polar.**
+
+What it does:
+
+- Motor gliders: a sustainer (turbo) or self-launching engine on a retracting pylon behind the cockpit; its weight and fuel are included and the powered climb is checked.
+- In the simulator: N (or the Engine button) extends, starts, stops and retracts the engine (about 8 s to extend / retract); fuel burns while running; an extended engine that is not running costs height.
+- Duo Discus T preset: 20 m two-seater with an 18 kW sustainer.
+- Speed polar for gliders in the design studio (sink against airspeed; best glide and minimum sink marked).
+- Fixed: closing the design studio just after a change could crash the app (a delayed 3-D refresh of a closed view).
+
+Known problems:
+
+- Glide performance is a little pessimistic: the Duo Discus T preset reaches ~38:1 (real ~45:1), the K-21 32:1 (real 34:1).
+- Sustainer engines start at once; real ones need a windmilling or electric start and can fail to start.
+- Winch launches reach ~1,800 ft in still air with the full Lasham cable - probably high (cable weight and sag not modelled).
+- Grabbing a 3-D handle does not yet select its part.
+- The San Francisco Bay 40 km standard map package is still missing.
+
 ## 0.13.0 — 2026-11-10
 
 **Edit in 3-D, one-click fixes, runway-length winch cable.**
@@ -14,6 +34,7 @@ What it does:
 
 Known problems:
 
+- Closing the design studio right after a change could crash the app (a delayed 3-D refresh of a closed view). Fixed in 0.14.0.
 - Winch launches reach ~560 m (1,840 ft) in still air with the full Lasham cable - probably higher than typical (cable weight and sag are not modelled yet); the driver variation hardly changes the height.
 - Grabbing a 3-D handle does not yet select its part.
 - K-21 preset glides 32:1 (real 34:1).

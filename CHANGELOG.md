@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0
+- **Motor gliders:** sustainer (turbo) or self-launching engines on a retracting pylon; their weight, fuel
+  and powered climb are part of the design check. In the simulator **N** (or the Engine button) extends,
+  starts, stops and retracts the engine; an extended engine that is not running costs height.
+- **Duo Discus T preset** (20 m two-seater, 18 kW sustainer).
+- **Speed polar** for gliders in the design studio.
+- **Fixed:** closing the design studio right after a change could crash the app.
+
 ## 0.13.0
 - **Edit in 3-D:** click a part in the design studio's 3-D view to select it (it glows gold), and drag
   the wing-tip, wing-root, tail and engine handles directly in 3-D.

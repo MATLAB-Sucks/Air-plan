@@ -38,7 +38,8 @@ SPECS = dict(P.parameter_specs() if callable(P.parameter_specs) else P.parameter
 LAYOUTS = [("Conventional", "conventional"), ("Canard", "canard"), ("Flying wing", "flying_wing"),
            ("Blended wing body", "blended_wing_body"), ("Twin boom", "twin_boom"),
            ("Supersonic delta", "supersonic_delta"), ("Stunt plane (aerobatic)", "aerobatic"),
-           ("Glider (sailplane)", "glider"), ("K-21 two-seat trainer (preset)", "k21")]
+           ("Glider (sailplane)", "glider"), ("K-21 two-seat trainer (preset)", "k21"),
+           ("Duo Discus T - two-seater with sustainer engine (preset)", "duo_t")]
 
 
 def clamp(name: str, value: float) -> float:
@@ -98,6 +99,8 @@ PART_PROPS = {
     "engines": [("engines.count", "Number of engines"), ("engines.thrust_kn", "Thrust each"),
                 ("engines.bypass_ratio", "Bypass ratio (jets)"), ("engines.span_fraction", "Position along the wing"),
                 ("engines.x_shift", "Moved forward (−) / aft (+)"), ("engines.spacing_fraction", "Outer pair offset"),
+                ("engines.glider_motor", "Glider motor (none / sustainer / self-launch)"),
+                ("engines.glider_motor_kw", "Glider motor power"),
                 ("configuration.engine_layout", "Mounting")],
     "gear": [("gear.wheel_diameter", "Wheel diameter"), ("gear.wheels_per_leg", "Wheels per leg"),
              ("gear.track", "Track"), ("gear.ground_clearance", "Ground clearance")],
@@ -145,6 +148,54 @@ class PartsBin(QListWidget):
         drag = QDrag(self)
         drag.setMimeData(md)
         drag.exec(Qt.CopyAction)
+
+
+class GliderPolarPlot(QWidget):
+    """A glider's speed polar: sink rate against airspeed, best glide and minimum sink marked."""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(170)
+        self.data = None
+
+    def set_data(self, v_kmh, sink, metrics):
+        self.data = (np.asarray(v_kmh), np.asarray(sink), metrics)
+        self.update()
+
+    def paintEvent(self, _):
+        if self.data is None:
+            return
+        from PySide6.QtGui import QPainter
+        v, s, m = self.data
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        p.fillRect(self.rect(), self.palette().base())
+        x0, y0, x1, y1 = 34, 22, w - 10, h - 22
+        smax = max(3.0, float(np.ceil(s.max())))
+        X = lambda vv: x0 + (vv - 0) / (v.max() * 1.02) * (x1 - x0)
+        Y = lambda ss: y0 + ss / smax * (y1 - y0)  # sink plotted downwards, like a real polar
+        p.setPen(QPen(QColor(150, 150, 150), 1, Qt.DashLine))
+        for k in range(1, int(smax) + 1):
+            p.drawLine(QPointF(x0, Y(k)), QPointF(x1, Y(k)))
+            p.drawText(QPointF(4, Y(k) + 4), f"{k} m/s")
+        p.setPen(QPen(QColor(60, 130, 210), 2))
+        for i in range(len(v) - 1):
+            p.drawLine(QPointF(X(v[i]), Y(s[i])), QPointF(X(v[i + 1]), Y(s[i + 1])))
+        vb, vm = m["v_best_glide_ms"] * 3.6, m["v_min_sink_ms"] * 3.6
+        sb = float(np.interp(vb, v, s))
+        p.setPen(QPen(QColor(230, 120, 40), 1.5))
+        p.drawLine(QPointF(X(0), Y(0)), QPointF(X(vb * 1.6), Y(sb * 1.6)))  # tangent from the origin = best glide
+        p.setBrush(QColor(230, 120, 40))
+        p.drawEllipse(QPointF(X(vb), Y(sb)), 4, 4)
+        p.setBrush(QColor(80, 200, 120))
+        p.setPen(QPen(QColor(80, 200, 120), 1.5))
+        p.drawEllipse(QPointF(X(vm), Y(m["min_sink_ms"])), 4, 4)
+        p.setPen(self.palette().text().color())
+        p.drawText(QPointF(x0, 14), f"Speed polar — best glide {m['best_ld']:.0f}:1 at {vb:.0f} km/h (orange), "
+                                    f"min sink {m['min_sink_ms']:.2f} m/s at {vm:.0f} km/h (green)")
+        p.drawText(QPointF(x1 - 60, h - 6), "km/h →")
+        p.end()
 
 
 class Handle(QGraphicsEllipseItem):
@@ -379,6 +430,9 @@ class DesignStudioWindow(QMainWindow):
         self.fix_layout = QVBoxLayout(self.fix_box)
         self.fix_layout.setContentsMargins(0, 0, 0, 0)
         vl.addWidget(self.fix_box)
+        self.polar_plot = GliderPolarPlot()  # gliders: sink rate against airspeed
+        self.polar_plot.hide()
+        vl.addWidget(self.polar_plot)
         row = QHBoxLayout()
         self.fly_btn = QPushButton("✈ Fly it")
         self.fly_btn.setObjectName("primary")
@@ -446,7 +500,9 @@ class DesignStudioWindow(QMainWindow):
             out.append("canard")
         if arr.layout == "twin_boom":
             out.append("booms")
-        out += (["gear"] if self.params.configuration.propulsion == "none" else ["engines", "gear"])
+        glider = self.params.configuration.propulsion == "none"
+        motor = getattr(self.params.engines, "glider_motor", "none") != "none"
+        out += (["engines", "gear"] if (not glider or motor) else ["gear"])
         return out
 
     def _fill_part_list(self):
@@ -752,10 +808,14 @@ class DesignStudioWindow(QMainWindow):
     def set_layout(self, layout: str):
         """A new layout re-sizes a starting design for it (keeping the engine and wing choices where valid)."""
         from ..core import synthesis as S
-        if layout in ("glider", "k21"):
-            self.mission = S.k21_mission() if layout == "k21" else S.glider_mission()
-            self.params = S.k21_preset(self.mission) if layout == "k21" else \
-                S.baseline(self.mission, S.configurations_for(self.mission)[0])
+        if layout in ("glider", "k21", "duo_t"):
+            if layout == "k21":
+                self.mission, self.params = S.k21_mission(), S.k21_preset()
+            elif layout == "duo_t":
+                self.mission, self.params = S.duo_discus_t_mission(), S.duo_discus_t_preset()
+            else:
+                self.mission = S.glider_mission()
+                self.params = S.baseline(self.mission, S.configurations_for(self.mission)[0])
             self.rebuild_editors(fit=True)
             self.schedule_analysis()
             QTimer.singleShot(0, self._refresh_panel)
@@ -1134,6 +1194,19 @@ class DesignStudioWindow(QMainWindow):
         finally:
             self._side_handles = saved
 
+    def _update_polar(self, metrics: dict) -> None:
+        if self.params.configuration.propulsion != "none" or "best_ld" not in metrics:
+            self.polar_plot.hide()
+            return
+        from ..core.glider import GliderPolar
+        pol = GliderPolar(self.params)
+        W = metrics["mtow_kg"] * 9.80665
+        v = np.linspace(max(metrics["stall_speed_ms"] * 1.05, 15.0), 70.0, 60)
+        cl = 2 * W / (1.225 * pol.S * v ** 2)
+        sink = v * np.array([pol.cd(float(c))[0] for c in cl]) / cl
+        self.polar_plot.set_data(v * 3.6, sink, metrics)
+        self.polar_plot.show()
+
     # ------------------------------------------------------------ one-click fixes
     def _update_fix_buttons(self) -> None:
         from ..core.fixes import fixes_for
@@ -1202,8 +1275,14 @@ class DesignStudioWindow(QMainWindow):
         style.AddObserver("MouseMoveEvent", self._3d_move)
         style.AddObserver("LeftButtonReleaseEvent", self._3d_release)
 
+    def closeEvent(self, event):
+        self._closing = True
+        super().closeEvent(event)
+
     def _refresh_3d(self) -> None:
         """Handles in 3-D (the same ones as the top view, sitting on the surface) and the selection glow."""
+        if getattr(self, "_closing", False) or getattr(self.viewport, "_closed", False):
+            return  # never touch a closed window's OpenGL view (a pending refresh after closing crashed)
         self._setup_3d_editing()
         if not getattr(self, "_3d_ready", False):
             return
@@ -1396,7 +1475,7 @@ class DesignStudioWindow(QMainWindow):
             self.design = AircraftDesign(self.params.copy(), self.name)
             self.viewport.show_design(self.design)
             if getattr(self, "_drag3d", None) is None:
-                QTimer.singleShot(0, self._refresh_3d)  # 3-D handles + selection glow follow the design
+                QTimer.singleShot(0, self, self._refresh_3d)  # tied to the studio: cancelled if it is destroyed
             size = (round(self.params.wing.span), round(self.params.fuselage.length), self.params.configuration.layout)
             if first or size != self._shown_span:  # re-frame the 3-D view when the aircraft changes size
                 self._shown_span = size
@@ -1426,6 +1505,7 @@ class DesignStudioWindow(QMainWindow):
             mission = "<p><b>Mission requirements missed</b><br>" + "<br>".join(
                 f"• {i}" for i in v.mission_issues[:10]) + "</p>"
         m = v.evaluation.metrics if v.evaluation and v.evaluation.converged else {}
+        self._update_polar(m)
         stats = (f"<p style='color:gray'>MTOW {m.get('mtow_kg', 0):,.0f} kg · span {self.params.wing.span:.1f} m · "
                  f"L/D {m.get('cruise_ld', 0):.1f} · range fuel {m.get('fuel_kg', 0):,.0f} kg</p>") if m else ""
         self.verdict_label.setText(f"<h3 style='color:{colour}'>{v.headline}</h3>{stats}"

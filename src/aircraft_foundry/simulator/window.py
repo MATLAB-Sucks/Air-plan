@@ -259,6 +259,10 @@ class SimulatorWindow(QMainWindow):
             gl_.addRow("Launch", self.launch_box)
             gl_.addRow(b_launch)
             gl_.addRow(self.show_thermals)
+            if self.model.motor_kw > 0:
+                self.motor_btn = QPushButton("Engine: extend  (N)")
+                self.motor_btn.clicked.connect(lambda: (self.sim.motor_toggle(), self._update_motor_button()))
+                gl_.addRow("Engine", self.motor_btn)
             tips = QLabel("Release with L at the top. Look for lift on the variometer, then circle tightly "
                           "(30–45° bank) to stay in it. F works the airbrakes for landing.")
             tips.setWordWrap(True)
@@ -590,6 +594,8 @@ class SimulatorWindow(QMainWindow):
             self.sas_box.setChecked(not self.sas_box.isChecked())
         elif key == Qt.Key_C:
             self.cam_box.setCurrentIndex((CAMERAS.index(self.camera_mode) + 1) % len(CAMERAS))
+        elif key == Qt.Key_N and self.model.motor_kw > 0:  # motor glider: extend / start / stop / retract
+            self.sim.motor_toggle()
         elif key == Qt.Key_L and self.model.glider:
             if self.sim.launch is not None:
                 self.sim.release("released by the pilot")
@@ -782,9 +788,28 @@ class SimulatorWindow(QMainWindow):
             "F flaps (airbrakes on gliders) · G gear · B brakes · T / Y trim · X stability aid<br>"
             "A autopilot on/off · any control key takes over from the autopilot<br>"
             "C camera · Space pause · 1–5 time speed · R restart · Esc / F11 full screen<br>"
-            "<b>Gliders</b>: L launch (winch / aerotow) and release · watch the variometer, "
+            "<b>Gliders</b>: L launch (winch / aerotow) and release · N engine (motor gliders: extend, start, "
+            "stop, retract) · watch the variometer, "
             "circle (30–45° bank) in lift<br>"
             "<b>Game controller</b>: sticks fly, triggers throttle, A/B flaps/gear, Start pauses")
+
+    def _show_motor(self, out: bool) -> None:
+        """The pylon and propeller appear when the engine is extended."""
+        if getattr(self, "_motor_out", None) == out:
+            return
+        self._motor_out = out
+        for k, cid in enumerate(self.part_ids):
+            if cid == "detail.motor" and self.parts[k][1] != "debris":
+                self.parts[k][0].SetVisibility(out)
+
+    def _update_motor_button(self) -> None:
+        b = getattr(self, "motor_btn", None)
+        if b is None:
+            return
+        nxt = {"retracted": "extend", "extending": "extending…", "extended": "start", "running": "stop",
+               "stopped": "retract", "retracting": "retracting…"}[self.sim.motor_state]
+        b.setText(f"Engine: {nxt}  (N)")
+        b.setEnabled(self.sim.motor_state not in ("extending", "retracting"))
 
     def _toggle_help(self) -> None:
         lab = getattr(self, "_help_label", None)
@@ -1095,7 +1120,7 @@ class SimulatorWindow(QMainWindow):
         self._inside = inside
         for k, cid in enumerate(self.part_ids):
             actor = self.parts[k][0]
-            if cid.startswith(("fuselage", "detail")) and self.parts[k][1] != "debris":
+            if cid.startswith(("fuselage", "detail")) and cid != "detail.motor" and self.parts[k][1] != "debris":
                 actor.SetVisibility(not inside)
         self.hud.SetVisibility(not inside)
         if inside and getattr(self, "panel", None) is None:
@@ -1148,6 +1173,13 @@ class SimulatorWindow(QMainWindow):
                          f"{'HIGH' if gs > 15 else 'LOW ' if gs < -15 else 'ON  '}{gs:+5.0f} m  LOC {r:+5.0f} m "
                          f"{'(fly left)' if r > 10 else '(fly right)' if r < -10 else ''}")
         endurance = f"{t['fuel_kg'] / t['fuel_flow_kgh'] * 60:5.0f}" if t["fuel_flow_kgh"] > 5 else "    —"
+        if self.model.motor_kw > 0 and t.get("motor", "retracted") != "retracted":
+            lines.append(f"ENGINE {t['motor'].upper():11s} FUEL {t['motor_fuel'] / 0.72:4.1f} l"
+                         + ("   (extended, not running: costs height - start it or retract it)"
+                            if t["motor"] in ("extended", "stopped") else ""))
+        if self.model.motor_kw > 0:
+            self._update_motor_button()
+            self._show_motor(t.get("motor", "retracted") != "retracted")
         if self.model.glider:
             self._vario = (self._vario + [t["vs"]])[-300:]
             avg = sum(self._vario) / len(self._vario)

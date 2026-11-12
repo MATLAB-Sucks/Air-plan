@@ -162,6 +162,8 @@ class Viewport(QWidget):
         self.render()
 
     def render(self) -> None:
+        if getattr(self, "_closed", False):
+            return  # the OpenGL window is gone: rendering now would crash
         if getattr(self, 'disabled', False):
             return
         self.renderer.ResetCameraClippingRange()
@@ -197,5 +199,6 @@ class Viewport(QWidget):
         self.component_picked.emit(cid)
 
     def closeEvent(self, event):
+        self._closed = True
         self.vtk_widget.Finalize()
         super().closeEvent(event)

@@ -790,3 +790,13 @@ def k21_mission():
 def k21_preset(mission=None):
     from .glider import k21_preset as _p
     return _p(mission)
+
+
+def duo_discus_t_mission():
+    from .glider import duo_discus_t_mission as _m
+    return _m()
+
+
+def duo_discus_t_preset(mission=None):
+    from .glider import duo_discus_t_preset as _p
+    return _p(mission)

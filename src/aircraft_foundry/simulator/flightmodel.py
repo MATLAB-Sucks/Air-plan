@@ -101,6 +101,8 @@ class AeroModel:
     t_tail: bool = False  # deep-stall risk: the stalled wing's wake blankets a high tailplane
     CLmin: float = -1.0  # negative stall (inverted)
     glider: bool = False  # no engine: the flap control works the airbrakes
+    motor_kw: float = 0.0  # motor glider: sustainer / self-launch engine power (0 = pure glider)
+    motor_kind: str = "none"
 
 
 def build_aero_model(params: AircraftParameters, mission: MissionRequirements, evaluation: Evaluation,
@@ -228,6 +230,7 @@ def build_aero_model(params: AircraftParameters, mission: MissionRequirements, e
                      wing_strength=params.structure.wing_strength,
                      n_negative_limit=abs(getattr(params.structure, "negative_load_factor", -1.0)),
                      t_tail=bool(arr.is_t_tail), glider=params.configuration.propulsion == "none",
+                     motor_kw=float(m.get("motor_kw", 0.0)), motor_kind=str(m.get("motor", "none")),
                      CLmin=-(max(1.15, m.get("clmax_landing", 1.5) - flap_dCL) - 1.6 * params.wing.camber * 6.0),
                      # design dive speed V_D ~ 1.5 x cruise equivalent airspeed (A320: ~250 KEAS cruise,
                      # V_D ~ 381 KEAS); dynamic pressure is the structural measure
@@ -301,6 +304,9 @@ class FlightSimulator:
         self.failure = ""  # "", "left wing", "right wing", "tail"
         self.event: dict | None = None  # what happened at a crash / failure (for the debrief)
         self.launch: dict | None = None  # glider launch in progress (winch / aerotow)
+        # motor gliders: "retracted" -> "extending" -> "extended" (stopped) <-> "running"; "retracting"
+        self.motor_state, self.motor_t = "retracted", 0.0
+        self.motor_fuel = {"sustainer": 12.0, "self_launch": 25.0}.get(model.motor_kind, 0.0) * 0.72
         self.thermals: list = []  # (north, east, radius, core m/s, top altitude)
         self.updraft = 0.0
         self._sep, self._sep_target, self._sep_frozen = 1.0, 1.0, False
@@ -366,6 +372,10 @@ class FlightSimulator:
         self._sep_target = target
         self._near_stall = abs(cl_lin) / max(lim, 1e-6)
         cd = md.polar.cd(min(abs(cl), 1.5), max(min(mach, 3.0), 0.05))[0]
+        if md.glider and self.motor_state != "retracted":  # pylon and propeller out: drag (running or not)
+            from ..core.glider import GliderPolar
+            # a stopped propeller and pylon in the airflow cost far more than a running one
+            cd += GliderPolar.MOTOR_DCD * {"extending": 1.2, "retracting": 1.2, "running": 1.0}.get(self.motor_state, 2.5)
         if md.glider:  # airbrakes: drag and spoiled lift (the "flaps" input)
             cd += 0.045 * ctl.flaps + (0.0015 if ctl.gear_down else 0.0)  # faired fixed wheel: little drag
             cl -= 0.18 * ctl.flaps * math.copysign(1.0, cl)
@@ -416,6 +426,10 @@ class FlightSimulator:
         R = R0
         mass = self.mass
         F += R.T @ np.array([0.0, 0.0, mass * G0])
+        if md.glider and self.motor_state == "running" and self.motor_fuel > 0:  # propeller thrust
+            power = md.motor_kw * 1000.0 * max(ctl.throttle, 0.0)
+            thrust = min(0.62 * power / max(V, 8.0), 0.62 * power / 8.0)
+            F += np.array([thrust, 0.0, 0.0])
         if self.launch is not None:  # winch cable or tow rope
             F += R.T @ self._launch_force(pos, R @ v, V)
         # landing gear
@@ -514,6 +528,7 @@ class FlightSimulator:
         R = quat_to_dcm(self.state[6:10])
         v_ned = R @ self.state[3:6]
         self.distance_flown += float(np.hypot(v_ned[0], v_ned[1])) * dt
+        self._motor_step(dt)
         if self.launch is not None and self.launch.get("done"):
             if self.launch.get("weak"):
                 self.release("weak link broke - land ahead or fly a short circuit")
@@ -614,6 +629,37 @@ class FlightSimulator:
 
     # ------------------------------------------------------------ set-ups
     # ------------------------------------------------------------------ gliders: launches and thermals
+    def motor_toggle(self) -> str:
+        """N: extend -> start -> stop -> retract (motor gliders)."""
+        if self.m.motor_kw <= 0:
+            return "no motor"
+        st = self.motor_state  # the cycle: extend -> start -> stop -> retract
+        if st == "retracted":
+            self.motor_state, self.motor_t = "extending", 0.0
+        elif st == "extended" and self.motor_fuel > 0:
+            self.motor_state = "running"
+            self.controls.throttle = max(self.controls.throttle, 1.0)
+        elif st == "running":
+            self.motor_state = "stopped"
+            self.controls.throttle = 0.0
+        elif st in ("stopped", "extended"):
+            self.motor_state, self.motor_t = "retracting", 0.0
+        return self.motor_state
+
+    def _motor_step(self, dt: float) -> None:
+        if self.m.motor_kw <= 0:
+            return
+        self.motor_t += dt
+        if self.motor_state == "extending" and self.motor_t > 8.0:
+            self.motor_state = "extended"
+        elif self.motor_state == "retracting" and self.motor_t > 8.0:
+            self.motor_state = "retracted"
+        if self.motor_state == "running":
+            # ~0.3 l / kWh-ish two-stroke: kg per second at this throttle
+            self.motor_fuel -= self.m.motor_kw * max(self.controls.throttle, 0.0) * 0.30 * 0.72 / 3600.0 * dt
+            if self.motor_fuel <= 0:
+                self.motor_fuel, self.motor_state = 0.0, "stopped"  # out of fuel: stopped, still extended
+
     def start_launch(self, kind: str = "winch") -> bool:
         """Winch launch (cable to a winch ~1.1 km down the runway) or aerotow (to ~600 m)."""
         if not self.last_forces.get("on_ground") and self.height_above_ground() > 8:
@@ -816,7 +862,7 @@ class FlightSimulator:
         return {"time": self.time, "airspeed": f.get("V", 0.0), "mach": f.get("mach", 0.0), "altitude": -s[2],
                 "vs": -v_ned[2], "alpha": f.get("alpha", 0.0) / D2R, "beta": f.get("beta", 0.0) / D2R,
                 "pitch": theta / D2R, "roll": phi / D2R, "heading": (psi / D2R) % 360, "load_factor": n_z,
-                "throttle": self.controls.throttle, "reheat": f.get("reheat", False), "stalled": f.get("stalled", False), "updraft": self.updraft, "launch": (self.launch or {}).get("kind", ""),
+                "throttle": self.controls.throttle, "reheat": f.get("reheat", False), "stalled": f.get("stalled", False), "updraft": self.updraft, "launch": (self.launch or {}).get("kind", ""), "motor": self.motor_state, "motor_fuel": self.motor_fuel,
                 "launch_v_target": (self.launch or {}).get("v_target", 0.0), "cable_deg": (self.launch or {}).get("cable_deg", 0.0),
                 "buffet": float(np.clip((self._near_stall - 0.88) / 0.12, 0, 1)),
                 "on_ground": f.get("on_ground", False), "ground_speed": float(np.hypot(v_ned[0], v_ned[1])),

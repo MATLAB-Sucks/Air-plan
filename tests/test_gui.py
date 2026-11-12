@@ -714,3 +714,21 @@ def test_studio_3d_editing_and_fix_buttons(app):
     w.refresh_analysis()
     assert all(c.ok for c in w.verdict.checks if c.name == "Stable in yaw")
     w.close()
+
+
+def test_studio_duo_discus_t_and_speed_polar(app):
+    from aircraft_foundry.app.design_studio import DesignStudioWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    m = MissionRequirements()
+    w = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    w.show()
+    app.processEvents()
+    w.set_layout("duo_t")
+    for _ in range(3):
+        app.processEvents()
+    w.refresh_analysis()
+    assert w.params.engines.glider_motor == "sustainer" and "engines" in w.parts_present()
+    assert w.polar_plot.isVisible() and w.verdict.flies
+    assert any(c.type.value == "detail" and c.id == "detail.motor" for c in w.design.components.values())
+    w.close()

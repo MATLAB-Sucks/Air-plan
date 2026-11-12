@@ -97,6 +97,9 @@ class EngineParams:
     spacing_fraction: float = p(0.25, 0.05, 0.4, "b/2", "Outboard engine offset", step=0.01)
     bypass_ratio: float = p(5.0, 0.0, 12.0, "", "Bypass ratio (turbofans)", step=0.1)
     x_shift: float = p(0.0, -15.0, 15.0, "m", "Engines moved forward (-) / aft (+)", step=0.1)
+    glider_motor: str = choice("none", ("none", "sustainer", "self_launch"),
+                               "Glider motor: none, sustainer (turbo, gets you home) or self-launching")
+    glider_motor_kw: float = p(0.0, 0.0, 80.0, "kW", "Glider motor power", step=1.0)
 
 
 @dataclass
