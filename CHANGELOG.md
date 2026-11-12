@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1
+- **Presets you can find:** File → New plane from preset (airliner, stunt plane, 18 m glider, K-21,
+  Duo Discus T), glider preset buttons on the Mission page, and a "Start from a preset" list in the
+  design studio. (The K-21 and Duo Discus T presets were not reachable before.)
+
 ## 0.14.0
 - **Motor gliders:** sustainer (turbo) or self-launching engines on a retracting pylon; their weight, fuel
   and powered climb are part of the design check. In the simulator **N** (or the Engine button) extends,

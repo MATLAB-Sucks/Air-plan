@@ -14,6 +14,7 @@ class MissionPanel(QScrollArea):
     evolve_requested = Signal()
     cancel_requested = Signal()
     mission_changed = Signal()
+    preset_requested = Signal(str)  # add a ready-made plane (handled by the main window)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,6 +45,15 @@ class MissionPanel(QScrollArea):
         prow.addWidget(stunt)
         prow.addWidget(airliner)
         form.addRow(prow)
+        grow = QHBoxLayout()  # gliders: these add the plane itself, ready to fly
+        for text, kind, tip in (("🪁 Glider (18 m)", "glider", "An 18 m class sailplane"),
+                                ("K-21", "k21", "ASK 21-like two-seat trainer"),
+                                ("Duo Discus T", "duo_t", "20 m two-seater with a sustainer engine")):
+            b = QPushButton(text)
+            b.setToolTip(tip + " - added to your aircraft list")
+            b.clicked.connect(lambda _=False, kind=kind: self.preset_requested.emit(kind))
+            grow.addWidget(b)
+        form.addRow("Glider presets", grow)
         self.derived = QLabel()
         self.derived.setWordWrap(True)
         self.derived.setStyleSheet("color: palette(mid);")

@@ -403,6 +403,12 @@ class DesignStudioWindow(QMainWindow):
         bin_box = QGroupBox("Parts — drag onto the aircraft")
         bl = QVBoxLayout(bin_box)
         self.bin = PartsBin()
+        self.preset_box = QComboBox()  # every starting point, presets included (K-21, Duo Discus T...)
+        self.preset_box.addItem("Start from a preset…")
+        for title, key in LAYOUTS:
+            self.preset_box.addItem(title, key)
+        self.preset_box.activated.connect(self._preset_chosen)
+        bl.addWidget(self.preset_box)
         bl.addWidget(self.bin)
         lay.addWidget(bin_box)
         props = QGroupBox("Selected part")
@@ -515,6 +521,12 @@ class DesignStudioWindow(QMainWindow):
         self.part_box.blockSignals(False)
         if i < 0:
             self.selected = self.part_box.itemData(0)
+
+    def _preset_chosen(self, index: int) -> None:
+        key = self.preset_box.itemData(index)
+        if key:
+            self.set_layout(key)
+        self.preset_box.setCurrentIndex(0)
 
     def select(self, part: str | None):
         if not part or part == self.selected and self.props_form.rowCount():

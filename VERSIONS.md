@@ -2,6 +2,24 @@
 
 What each version does, and the problems known in it (with where they were fixed). The app shows the same notes in its update banner and **Help → Version history**.
 
+## 0.14.1 — 2026-11-11
+
+**Presets you can actually find.**
+
+What it does:
+
+- File → New plane from preset: airliner, stunt plane, 18 m glider, K-21, Duo Discus T - added straight to your aircraft list.
+- Mission page: glider preset buttons (Glider 18 m, K-21, Duo Discus T) beside the stunt plane and airliner presets.
+- Design studio: a 'Start from a preset' list at the top of the side panel.
+
+Known problems:
+
+- Glide performance is a little pessimistic (Duo Discus T ~38:1, real ~45:1; K-21 32:1, real 34:1).
+- Sustainer engines start at once (real ones need a windmilling or electric start and can fail to start).
+- Winch launches reach ~1,800 ft in still air with the full Lasham cable - probably high.
+- Grabbing a 3-D handle does not yet select its part.
+- The San Francisco Bay 40 km standard map package is still missing.
+
 ## 0.14.0 — 2026-11-11
 
 **Motor gliders (sustainer and self-launch), Duo Discus T preset, speed polar.**
@@ -16,6 +34,7 @@ What it does:
 
 Known problems:
 
+- The K-21 (and later Duo Discus T) presets could not be reached from the app: the studio's layout list had been removed. Fixed in 0.14.1.
 - Glide performance is a little pessimistic: the Duo Discus T preset reaches ~38:1 (real ~45:1), the K-21 32:1 (real 34:1).
 - Sustainer engines start at once; real ones need a windmilling or electric start and can fail to start.
 - Winch launches reach ~1,800 ft in still air with the full Lasham cable - probably high (cable weight and sag not modelled).
@@ -34,6 +53,7 @@ What it does:
 
 Known problems:
 
+- The K-21 (and later Duo Discus T) presets could not be reached from the app: the studio's layout list had been removed. Fixed in 0.14.1.
 - Closing the design studio right after a change could crash the app (a delayed 3-D refresh of a closed view). Fixed in 0.14.0.
 - Winch launches reach ~560 m (1,840 ft) in still air with the full Lasham cable - probably higher than typical (cable weight and sag are not modelled yet); the driver variation hardly changes the height.
 - Grabbing a 3-D handle does not yet select its part.
@@ -53,6 +73,7 @@ What it does:
 
 Known problems:
 
+- The K-21 (and later Duo Discus T) presets could not be reached from the app: the studio's layout list had been removed. Fixed in 0.14.1.
 - Holding a fixed 45 degree attitude all the way to the top of a winch launch still bleeds speed (as in real life): lower the nose as the cable steepens.
 - K-21 preset glides 32:1 (real 34:1).
 - The San Francisco Bay 40 km standard map package is still missing.
@@ -71,6 +92,7 @@ What it does:
 
 Known problems:
 
+- The K-21 (and later Duo Discus T) presets could not be reached from the app: the studio's layout list had been removed. Fixed in 0.14.1.
 - Gliders could stall near the top of a winch launch even before full rotation (the winch pulled harder as the cable steepened). Fixed in 0.12.1.
 - Carried over from 0.11.1: winch launch speed can peak at 135-145 km/h; K-21 preset glides 32:1 (real 34:1).
 - The San Francisco Bay 40 km standard map package is still missing.
@@ -88,6 +110,7 @@ What it does:
 
 Known problems:
 
+- The K-21 (and later Duo Discus T) presets could not be reached from the app: the studio's layout list had been removed. Fixed in 0.14.1.
 - Winch launch speed can peak at 135-145 km/h, faster than a typical launch (still below the K-21's 150 km/h placard).
 - K-21 preset: 32:1 best glide and 0.74 m/s minimum sink (real ASK 21: 34:1 and 0.65 m/s).
 - Released after targeted test runs (gliders, core, studio) rather than the full suite.

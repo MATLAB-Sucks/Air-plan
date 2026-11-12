@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QDockWidget, QFileDialog, QHBoxLayout, QInputDial
 from .. import __version__
 from ..core.design import AircraftDesign
 from ..core.generator import Candidate, EvolutionSettings, evolve, generate_candidates
+from ..core.mission import MissionRequirements
 from ..core.project import SUFFIX, Project
 from ..core.synthesis import complete_design
 from ..fileio.exporter import run_export
@@ -132,6 +133,7 @@ class MainWindow(QMainWindow):
         self.mission_panel.evolve_requested.connect(self.evolve_selected)
         self.mission_panel.cancel_requested.connect(self.cancel_task)
         self.mission_panel.mission_changed.connect(self._mark_dirty)
+        self.mission_panel.preset_requested.connect(self.add_preset)
         self.gallery.candidate_activated.connect(self.activate_candidate)
         self.inspector.component_selected.connect(self.select_component)
         self.viewport.component_picked.connect(self._picked)
@@ -576,6 +578,9 @@ class MainWindow(QMainWindow):
         fm = self.menuBar().addMenu("&File")
         act(fm, "New project", self.new_project, QKeySequence.New)
         act(fm, "Open project…", self.open_project, QKeySequence.Open)
+        self.preset_menu = fm.addMenu("New plane from preset")
+        for title, kind in self.PRESETS:
+            self.preset_menu.addAction(title, lambda kind=kind: self.add_preset(kind))
         self.recent_menu = fm.addMenu("Open recent")
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         act(fm, "Save project", self.save_project, QKeySequence.Save)
@@ -872,6 +877,43 @@ class MainWindow(QMainWindow):
             self.activate_candidate(c.id)
             studio.source_key = self._tool_key()  # the studio is showing exactly this now
         self.status_label.setText(f"Applied the design-studio changes to '{c.name}'.")
+
+    PRESETS = [("Airliner (A320 class)", "airliner"), ("Stunt plane (Extra 330 class, ±10 g)", "stunt"),
+               ("Glider (18 m sailplane)", "glider"), ("K-21 two-seat trainer", "k21"),
+               ("Duo Discus T (two-seater, sustainer engine)", "duo_t")]
+
+    def add_preset(self, kind: str) -> None:
+        """Add a ready-made plane to the list (and switch the project's mission to its requirements)."""
+        from PySide6.QtWidgets import QApplication
+        from ..core import synthesis as S
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            if kind == "stunt":
+                m = S.aerobatic_mission()
+                p = S.baseline(m, S.configurations_for(m)[0])
+            elif kind == "glider":
+                m = S.glider_mission()
+                p = S.baseline(m, S.configurations_for(m)[0])
+            elif kind == "k21":
+                m = S.k21_mission()
+                p = S.k21_preset(m)
+            elif kind == "duo_t":
+                m = S.duo_discus_t_mission()
+                p = S.duo_discus_t_preset(m)
+            else:
+                m = MissionRequirements()
+                p = S.baseline(m, S.configurations_for(m)[0])
+            self.project.mission = m
+            self.mission_panel.set_mission(m)
+            self.add_studio_design(p)
+        finally:
+            QApplication.restoreOverrideCursor()
+        title = dict((k, t) for t, k in self.PRESETS).get(kind, kind)
+        c = self.project.candidates[-1]
+        c.name = title
+        c.origin = "preset"
+        self.gallery.update_candidate(c)
+        self.status_label.setText(f"Added the {title} preset (the mission is now its requirements)")
 
     def add_studio_design(self, params):
         n = sum(1 for c in self.project.candidates if c.origin == "design studio") + 1

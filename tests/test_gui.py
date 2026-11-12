@@ -732,3 +732,39 @@ def test_studio_duo_discus_t_and_speed_polar(app):
     assert w.polar_plot.isVisible() and w.verdict.flies
     assert any(c.type.value == "detail" and c.id == "detail.motor" for c in w.design.components.values())
     w.close()
+
+
+def test_presets_are_reachable_from_the_real_controls(app, tmp_path):
+    """Every preset must be reachable through what the user actually sees (not only internal calls)."""
+    from PySide6.QtWidgets import QPushButton
+    from aircraft_foundry.app.design_studio import DesignStudioWindow
+    from aircraft_foundry.app.main_window import MainWindow
+    from aircraft_foundry.core.mission import MissionRequirements
+    from aircraft_foundry.core.synthesis import _C, baseline
+    from aircraft_foundry.portable import DataLocation
+    w = MainWindow(DataLocation(tmp_path / "d", False, "test"))
+    w.show()
+    app.processEvents()
+    titles = [a.text() for a in w.preset_menu.actions()]
+    assert any("K-21" in t for t in titles) and any("Duo Discus T" in t for t in titles) and any("Glider" in t for t in titles)
+    next(a for a in w.preset_menu.actions() if "K-21" in a.text()).trigger()  # File > New plane from preset
+    c = w.project.candidates[-1]
+    assert c.name.startswith("K-21") and c.params.wing.span == 17.0 and w.project.mission.category == "glider"
+    btn = next(b for b in w.mission_panel.findChildren(QPushButton) if b.text() == "Duo Discus T")
+    btn.click()  # the Mission page button
+    c = w.project.candidates[-1]
+    assert c.name.startswith("Duo Discus T") and c.params.engines.glider_motor == "sustainer"
+    w.dirty = False
+    w.close()
+    m = MissionRequirements()
+    s = DesignStudioWindow(baseline(m, _C("turbofan", "wing", "conventional", "low")), m)
+    s.show()
+    app.processEvents()
+    items = [s.preset_box.itemText(i) for i in range(s.preset_box.count())]
+    assert any("K-21" in t for t in items) and any("Duo Discus T" in t for t in items)
+    i = next(i for i, t in enumerate(items) if "K-21" in t)
+    s.preset_box.activated.emit(i)  # chosen from the studio's preset list
+    for _ in range(3):
+        app.processEvents()
+    assert s.params.wing.span == 17.0 and s.mission.category == "glider" and s.preset_box.currentIndex() == 0
+    s.close()
