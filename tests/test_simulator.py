@@ -618,3 +618,33 @@ def test_motor_glider_sustainer():
     for _ in range(900):
         sim.step(1 / 100)
     assert sim.motor_state == "retracted"
+
+
+def test_ridge_lift_from_the_wind():
+    from aircraft_foundry.simulator.world import load_world
+    p, m, ev = _glider()
+    md = build_aero_model(p, m, ev)
+    W = load_world("lasham-40-standard")
+    sim = FlightSimulator(md, W)
+    n0, e0, dn, de, gn, ge, depth = sim._ridge_fields()
+    k = np.unravel_index(np.argmax(np.hypot(gn, ge)), gn.shape)
+    N, E = n0 + k[0] * dn + dn / 2, e0 + k[1] * de + de / 2
+    d = np.array([gn[k], ge[k]]) / np.hypot(gn[k], ge[k])
+    up = np.array([12 * d[0], 12 * d[1], 0.0])  # air moving up the slope
+    g = W.height_at(N, E)
+    sim.wind_ned = up
+    assert sim.ridge_lift_at(N, E, g + 60) > 1.0 > sim.ridge_lift_at(N, E, g + 600)  # a band near the slope
+    sim.wind_ned = -up
+    assert sim.ridge_lift_at(N, E, g + 60) < -1.0  # lee sink
+    sim.wind_ned = np.zeros(3)
+    assert sim.ridge_lift_at(N, E, g + 60) == 0.0
+    rates = []
+    for wind in (np.zeros(3), up):  # soar along the ridge
+        s2 = FlightSimulator(md, W)
+        s2.wind_ned = wind
+        s2.start_in_flight(26, g + 70, math.degrees(math.atan2(d[1], d[0])) + 90, north=N, east=E)
+        h0 = s2.telemetry()["altitude"]
+        for _ in range(1200):
+            s2.step(1 / 100)
+        rates.append((s2.telemetry()["altitude"] - h0) / 12)
+    assert rates[0] < -0.3 and rates[1] > 0.5

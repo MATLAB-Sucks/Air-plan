@@ -20,7 +20,7 @@ import vtkmodules.vtkInteractionStyle  # noqa: E402,F401
 import vtkmodules.vtkRenderingOpenGL2  # noqa: E402,F401
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen, QPolygonF  # noqa: E402
-from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtCore import QPointF, QRectF  # noqa: E402
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout,  # noqa: E402
                                QGroupBox, QHBoxLayout, QLabel, QListWidget, QMainWindow, QPushButton, QScrollArea,
                                QSpinBox, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
@@ -254,7 +254,7 @@ class SimulatorWindow(QMainWindow):
             b_launch = QPushButton("Launch  (L)")
             b_launch.setObjectName("primary")
             b_launch.clicked.connect(lambda: self._key_pressed(Qt.Key_L))
-            self.show_thermals = QCheckBox("Show thermals on the map (learning aid)")
+            self.show_thermals = QCheckBox("Show lift on the map: thermals and ridge lift (learning aid)")
             self.show_thermals.setChecked(True)
             gl_.addRow("Launch", self.launch_box)
             gl_.addRow(b_launch)
@@ -269,6 +269,9 @@ class SimulatorWindow(QMainWindow):
             tips.setObjectName("hint")
             gl_.addRow(tips)
             fl.addWidget(gbox)
+        self.overlay_map_box = QCheckBox("Mini-map in the 3-D view (also in full screen)")
+        self.overlay_map_box.setChecked(True)
+        fl.addWidget(self.overlay_map_box)
         b_log = QPushButton("Export flight log (CSV)…")
         b_log.clicked.connect(self.export_log)
         fl.addWidget(b_log)
@@ -1107,11 +1110,122 @@ class SimulatorWindow(QMainWindow):
         low = 0.6 if self.camera_mode == "cockpit" else 3.0  # the pilot's eye may be close to the ground
         eye[2] = max(eye[2], self.sim.ground(eye[1], eye[0]) + low)  # never put the camera under the hills
         self._cockpit_visibility(self.camera_mode == "cockpit")
+        try:
+            self._update_overlay_map()
+        except Exception:
+            pass  # the overlay map is a convenience: never let it stop the simulator
         cam.SetPosition(*eye)
         cam.SetFocalPoint(*focal)
         cam.SetViewUp(*up)
         cam.SetViewAngle(50 if self.camera_mode == "cockpit" else 35)
         cam.SetClippingRange(0.5, 150000)
+
+    def _cockpit_info(self, t: dict) -> dict:
+        """Extra cockpit readouts: IAS, ground speed, wind, netto, final glide / distance / bearing home."""
+        from ..numerics.atmosphere import isa
+        sim, md = self.sim, self.model
+        rho = isa(max(t["altitude"], 0.0)).density
+        v = max(t["airspeed"], 1.0)
+        ias = v * math.sqrt(rho / 1.225)
+        wn, we = float(sim.wind_ned[0]), float(sim.wind_ned[1])
+        wind_spd = math.hypot(wn, we)
+        wind_from = (math.degrees(math.atan2(-we, -wn)) + 360) % 360
+        out = {"ias": ias, "gs": t.get("ground_speed", v), "wind_spd": wind_spd, "wind_from": wind_from}
+        cl = 2 * sim.mass * 9.80665 / (rho * v ** 2 * md.S)
+        polar_sink = v * md.polar.cd(min(cl, 1.5), 0.1)[0] / max(cl, 0.05)
+        out["netto"] = t["vs"] + polar_sink  # the air's own vertical speed
+        home = self.terrain.home
+        hn, he = home.point(home.length / 2)
+        dist = math.hypot(hn - sim.state[0], he - sim.state[1])
+        brg = (math.degrees(math.atan2(he - sim.state[1], hn - sim.state[0])) + 360) % 360
+        ld = getattr(self, "_best_ld", None)
+        if ld is None:
+            cls = np.linspace(0.2, 1.4, 60)
+            ld = self._best_ld = float(max(c / md.polar.cd(float(c), 0.1)[0] for c in cls))
+        need = dist / max(ld * 0.8, 1.0) + 150.0  # glide at 80 % of best, arrive 150 m above the field
+        out.update(home=home.code, home_dist=dist, home_brg=brg, final_glide=t["altitude"] - home.elevation - need)
+        out["flaps"], out["gear"] = sim.controls.flaps, sim.controls.gear_down
+        return out
+
+    def _update_overlay_map(self) -> None:
+        """The moving map drawn by VTK in the corner of the 3-D view (safe over OpenGL; works in full screen)."""
+        from vtkmodules.vtkRenderingCore import vtkActor2D, vtkImageMapper
+        from vtkmodules.vtkCommonDataModel import vtkImageData
+        from PySide6.QtGui import QImage
+        on = self.overlay_map_box.isChecked()
+        if getattr(self, "_map_actor", None) is None:
+            if not on:
+                return
+            self._map_img = vtkImageData()
+            mp = vtkImageMapper()
+            mp.SetInputData(self._map_img)
+            mp.SetColorWindow(255)
+            mp.SetColorLevel(127.5)
+            self._map_actor = vtkActor2D()
+            self._map_actor.SetMapper(mp)
+            self.renderer.AddViewProp(self._map_actor)
+            self._map_t = -1.0
+        self._map_actor.SetVisibility(on)
+        if not on or self.sim.time - self._map_t < 0.4 and self._map_t >= 0:
+            return
+        self._map_t = self.sim.time
+        size = max(150, min(260, int(self.vtk_widget.height() * 0.3)))
+        mm = self.minimap
+        if mm.width() < 50 or mm.height() < 50:
+            mm.resize(260, 260)
+        src = QImage(mm.size(), QImage.Format_RGBA8888)
+        src.fill(QColor(20, 24, 30))
+        mm.render(src)
+        side_ = min(src.width(), src.height())  # the square around the aircraft (the map is centred on it)
+        src = src.copy((src.width() - side_) // 2, (src.height() - side_) // 2, side_, side_)
+        img = src.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation).convertToFormat(QImage.Format_RGBA8888)
+        w_, h_ = img.width(), img.height()
+        arr = np.frombuffer(img.constBits(), dtype=np.uint8, count=img.sizeInBytes()).reshape(h_, img.bytesPerLine())
+        arr = arr[:, : w_ * 4].reshape(h_, w_, 4)[::-1].copy()  # VTK's origin is bottom-left
+        vt = numpy_to_vtk(arr.reshape(-1, 4), deep=True)
+        self._map_img.SetDimensions(w_, h_, 1)
+        self._map_img.GetPointData().SetScalars(vt)
+        self._map_img.Modified()
+        W_, H_ = self.vtk_widget.width(), self.vtk_widget.height()
+        self._map_actor.SetPosition(max(W_ - w_ - 12, 0), max(H_ - h_ - 12, 0))
+
+    def _canopy_frame(self, show: bool) -> None:
+        """A canopy bow (gliders) or windscreen posts, drawn by VTK over the cockpit view."""
+        if getattr(self, "_frame_actor", None) is None:
+            if not show:
+                return
+            from vtkmodules.vtkCommonCore import vtkPoints
+            from vtkmodules.vtkCommonDataModel import vtkCellArray, vtkPolyData
+            from vtkmodules.vtkRenderingCore import vtkActor2D, vtkCoordinate, vtkPolyDataMapper2D
+            pts, lines = vtkPoints(), vtkCellArray()
+
+            def poly(xy):
+                ids = [pts.InsertNextPoint(x, y, 0) for x, y in xy]
+                lines.InsertNextCell(len(ids), ids)
+            if self.model.glider or self.params.fuselage.diameter < 2.0:  # bubble canopy: bow and rails
+                poly([(0.0, 0.93), (0.25, 0.985), (0.5, 0.995), (0.75, 0.985), (1.0, 0.93)])
+                poly([(0.0, 0.25), (0.06, 0.62), (0.0, 0.93)])
+                poly([(1.0, 0.25), (0.94, 0.62), (1.0, 0.93)])
+            else:  # airliner windscreen: centre post and side pillars
+                poly([(0.5, 0.0), (0.5, 1.0)])
+                poly([(0.02, 0.0), (0.12, 1.0)])
+                poly([(0.98, 0.0), (0.88, 1.0)])
+                poly([(0.0, 0.97), (1.0, 0.97)])
+            pd = vtkPolyData()
+            pd.SetPoints(pts)
+            pd.SetLines(lines)
+            coord = vtkCoordinate()
+            coord.SetCoordinateSystemToNormalizedViewport()
+            mp = vtkPolyDataMapper2D()
+            mp.SetInputData(pd)
+            mp.SetTransformCoordinate(coord)
+            self._frame_actor = vtkActor2D()
+            self._frame_actor.SetMapper(mp)
+            prop = self._frame_actor.GetProperty()
+            prop.SetColor(0.08, 0.08, 0.1)
+            prop.SetLineWidth(14 if self.model.glider else 22)
+            self.renderer.AddViewProp(self._frame_actor)
+        self._frame_actor.SetVisibility(show)
 
     def _cockpit_visibility(self, inside: bool) -> None:
         """From the seat you look out through the canopy: hide the own fuselage and glazing, show the wings."""
@@ -1123,6 +1237,7 @@ class SimulatorWindow(QMainWindow):
             if cid.startswith(("fuselage", "detail")) and cid != "detail.motor" and self.parts[k][1] != "debris":
                 actor.SetVisibility(not inside)
         self.hud.SetVisibility(not inside)
+        self._canopy_frame(inside)
         if inside and getattr(self, "panel", None) is None:
             # below the 3-D view in the layout, like a real panel under the windscreen
             # (never painted on top of the OpenGL view)
@@ -1203,7 +1318,8 @@ class SimulatorWindow(QMainWindow):
         self.hud.SetInput("\n".join(lines))
         if getattr(self, "_inside", False) and getattr(self, "panel", None) is not None:
             avg = sum(self._vario) / len(self._vario) if self._vario else 0.0
-            self.panel.set_state({**t, "time": self.sim.time}, self.model.glider, avg, list(warn))
+            self.panel.set_state({**t, "time": self.sim.time, **self._cockpit_info(t)}, self.model.glider, avg,
+                                 list(warn))
         warn = []
         if self.sim.failure_msg:
             warn.append(self.sim.failure_msg)
@@ -1281,6 +1397,40 @@ class MiniMap(QWidget):
         self._img = QImage(img.data, img.shape[1], img.shape[0], 3 * img.shape[1], QImage.Format_RGB888).copy()
         self._extent = (north[0], north[-1], east[0], east[-1])
 
+    def _paint_ridge_lift(self, p) -> None:
+        """Ridge lift (green) and lee sink (red) at ~100 m above the slopes in the current wind."""
+        sim = self.win.sim
+        wind = sim.wind_ned
+        if abs(wind[0]) + abs(wind[1]) < 0.5:
+            return
+        f = sim._ridge_fields()
+        if not f:
+            return
+        n0, e0, dn, de, gn, ge, depth = f
+        key = (round(float(wind[0]), 1), round(float(wind[1]), 1))
+        if getattr(self, "_ridge_key", None) != key:
+            fade = np.exp(-100.0 / depth) * min(1.0, 0.3 + 100.0 / 60.0)
+            self._ridge_w = np.clip((wind[0] * gn + wind[1] * ge) * 1.4 * fade, -4, 6)
+            self._ridge_key = key
+        w = self._ridge_w
+        step = max(1, int(self.range / 40 / dn))  # about 80 cells across the view
+        cell = max(step * dn * self._scale(), 2.0)
+        cn, ce = self.win.sim.state[0], self.win.sim.state[1]
+        i0, i1 = max(0, int((cn - self.range - n0) / dn)), min(w.shape[0], int((cn + self.range - n0) / dn))
+        j0, j1 = max(0, int((ce - self.range - e0) / de)), min(w.shape[1], int((ce + self.range - e0) / de))
+        p.setPen(Qt.NoPen)
+        for i in range(i0, i1, step):
+            for j in range(j0, j1, step):
+                blk = w[i:i + step, j:j + step]  # the strongest air in each block: narrow ridges still show
+                hi, lo = float(blk.max()), float(blk.min())
+                v = hi if hi >= -lo else lo
+                if abs(v) < 0.25:
+                    continue
+                a = int(min(190, 70 + 60 * abs(v)))  # clearly visible even for gentle downs
+                p.setBrush(QColor(40, 210, 90, a) if v > 0 else QColor(230, 60, 50, a))
+                c = self._to_px(n0 + i * dn, e0 + j * de)
+                p.drawRect(QRectF(c.x() - cell / 2, c.y() - cell / 2, cell, cell))
+
     def _scale(self):
         return min(self.width(), self.height()) / (2 * self.range)
 
@@ -1336,6 +1486,7 @@ class MiniMap(QWidget):
                 p.drawEllipse(c, 4, 4)
                 p.drawText(c + QPointF(6, 4), wp.name)
         if getattr(self.win, "show_thermals", None) is not None and self.win.show_thermals.isChecked():
+            self._paint_ridge_lift(p)
             drift = self.win.sim.wind_ned[:2] * self.win.sim.time
             for tn, te, r, core, top in self.win.sim.thermals:
                 c_ = self._to_px(tn + drift[0], te + drift[1])

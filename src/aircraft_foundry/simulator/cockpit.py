@@ -37,9 +37,11 @@ class InstrumentPanel(QWidget):
         p.drawLine(QPointF(0, top), QPointF(w, top))
         t = self.t
         n = 6
-        r = min(ph * 0.40, w / (2 * n + 2))
+        info_w = max(230.0, w * 0.26)  # the digital information column on the right
+        gw = w - info_w
+        r = min(ph * 0.40, gw / (2 * n + 1.2))
         cy = top + ph * 0.55
-        xs = [w / 2 + (i - (n - 1) / 2) * (2.25 * r) for i in range(n)]
+        xs = [gw / 2 + (i - (n - 1) / 2) * (2.18 * r) for i in range(n)]
         g = self.glider
         spd = t.get("airspeed", 0.0) * (3.6 if g else 1.944)
         self._dial(p, xs[0], cy, r, spd, 0, 300 if g else 400, "km/h" if g else "KT", "AIRSPEED", major=50)
@@ -64,6 +66,7 @@ class InstrumentPanel(QWidget):
                 prev = pt
             p.setPen(QColor(150, 150, 150))
             p.drawText(QRectF(ax + 10, 2, 80, top - 4), Qt.AlignVCenter | Qt.AlignLeft, "yaw string")
+        self._info(p, w - info_w + 6, top + 8, info_w - 14, ph - 14)
         if self.warnings:
             f = QFont()
             f.setPointSize(13)
@@ -197,3 +200,62 @@ class InstrumentPanel(QWidget):
         p.setPen(QPen(QColor(240, 240, 240), 1))
         p.drawEllipse(QPointF(bx, y), r * 0.1, r * 0.1)
 
+
+
+def _fmt_info(t: dict, glider: bool) -> list[tuple[str, str, object]]:
+    rows = []
+    k = 3.6 if glider else 1.944
+    unit = "km/h" if glider else "kt"
+    rows.append(("IAS / TAS", f"{t.get('ias', 0) * k:.0f} / {t.get('airspeed', 0) * k:.0f} {unit}", None))
+    rows.append(("Ground speed", f"{t.get('gs', 0) * k:.0f} {unit}", None))
+    if t.get("wind_spd", 0) > 0.3:
+        rows.append(("Wind", f"{t['wind_from']:03.0f}° / {t['wind_spd'] * k:.0f} {unit}", None))
+    else:
+        rows.append(("Wind", "calm", None))
+    if glider:
+        n = t.get("netto", 0.0)
+        rows.append(("Netto (air)", f"{n:+.1f} m/s", QColor(90, 220, 120) if n > 0.2 else
+                     (QColor(240, 90, 80) if n < -0.8 else None)))
+    fg = t.get("final_glide", 0.0)
+    if "home" in t:
+        rows.append((f"Home {t['home']}", f"{t['home_dist'] / 1000:.1f} km at {t['home_brg']:03.0f}°", None))
+        rows.append(("Final glide" if glider else "Above glide home", f"{fg:+.0f} m",
+                     QColor(90, 220, 120) if fg > 0 else QColor(240, 90, 80)))
+    if glider:
+        rows.append(("Airbrakes", f"{t.get('flaps', 0):.0%}", None))
+        if t.get("motor") not in (None, "retracted"):
+            rows.append(("Engine", f"{t['motor']} · {t.get('motor_fuel', 0) / 0.72:.1f} l", None))
+    else:
+        rows.append(("Flaps · gear", f"{t.get('flaps', 0):.0%} · {'down' if t.get('gear') else 'up'}", None))
+        rows.append(("Throttle · fuel", f"{t.get('throttle', 0):.0%} · {t.get('fuel_kg', 0):,.0f} kg", None))
+    return rows
+
+
+def _info(self, p, x, y, w, h):
+    """Digital readouts: speeds, wind (arrow relative to the nose), netto, home and final glide."""
+    p.setPen(QPen(QColor(70, 74, 82), 1))
+    p.setBrush(QColor(16, 17, 20))
+    p.drawRoundedRect(QRectF(x, y, w, h), 8, 8)
+    rows = _fmt_info(self.t, self.glider)
+    f = QFont()
+    f.setPointSizeF(max(7.5, min(11.0, h / (len(rows) + 1) * 0.55)))
+    p.setFont(f)
+    lh = (h - 12) / max(len(rows), 1)
+    for k, (label, value, colour) in enumerate(rows):
+        yy = y + 6 + k * lh
+        p.setPen(QColor(150, 155, 165))
+        p.drawText(QRectF(x + 10, yy, w * 0.48, lh), Qt.AlignVCenter | Qt.AlignLeft, label)
+        p.setPen(colour or QColor(235, 238, 245))
+        p.drawText(QRectF(x + w * 0.45, yy, w * 0.53, lh), Qt.AlignVCenter | Qt.AlignRight, value)
+    if self.t.get("wind_spd", 0) > 0.3:  # wind arrow relative to the nose (top = ahead)
+        rel = math.radians(self.t["wind_from"] - self.t.get("heading", 0.0) + 180.0)
+        lh = (h - 12) / max(len(rows), 1)
+        cx, cy, L = x + w * 0.40, y + 6 + 2.5 * lh, min(9.0, lh * 0.38)  # beside the Wind row
+        p.setPen(QPen(QColor(120, 190, 255), 2.5))
+        tip = QPointF(cx + math.sin(rel) * L, cy - math.cos(rel) * L)
+        p.drawLine(QPointF(cx - math.sin(rel) * L, cy + math.cos(rel) * L), tip)
+        p.setBrush(QColor(120, 190, 255))
+        p.drawEllipse(tip, 3, 3)
+
+
+InstrumentPanel._info = _info

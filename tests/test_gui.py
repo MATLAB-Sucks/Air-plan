@@ -768,3 +768,42 @@ def test_presets_are_reachable_from_the_real_controls(app, tmp_path):
         app.processEvents()
     assert s.params.wing.span == 17.0 and s.mission.category == "glider" and s.preset_box.currentIndex() == 0
     s.close()
+
+
+def test_cockpit_info_overlay_map_and_ridge_view(app):
+    import numpy as np
+    from PySide6.QtGui import QColor, QImage, QPainter
+    from aircraft_foundry.core.design import AircraftDesign
+    from aircraft_foundry.core.evaluator import evaluate
+    from aircraft_foundry.core.synthesis import glider_mission, baseline, configurations_for
+    from aircraft_foundry.simulator.window import SimulatorWindow
+    m = glider_mission()
+    p = baseline(m, configurations_for(m)[0])
+    w = SimulatorWindow(AircraftDesign(p, "g"), m, evaluate(p, m))
+    w.timer.stop()
+    w.show()
+    app.processEvents()
+    w.sim.wind_ned = np.array([0.0, -12.0, 0.0])
+    w.sim.start_in_flight(26, 900)
+    w.camera_mode = "cockpit"
+    w.render_frame()
+    app.processEvents()
+    assert w._inside and w._frame_actor.GetVisibility() and w._map_actor.GetVisibility()  # frame + on-screen map
+    info = w._cockpit_info(w.sim.telemetry())
+    for key in ("ias", "gs", "wind_spd", "netto", "home_dist", "final_glide"):
+        assert key in info
+    mm = w.minimap
+    mm.resize(300, 300)
+    img = QImage(300, 300, QImage.Format_RGBA8888)
+    img.fill(QColor(0, 0, 0))
+    pp = QPainter(img)
+    mm._paint_ridge_lift(pp)
+    pp.end()
+    a = np.frombuffer(img.constBits(), dtype=np.uint8, count=img.sizeInBytes()).reshape(300, img.bytesPerLine())
+    a = a[:, :1200].reshape(300, 300, 4)
+    assert ((a[..., 1] > 40) & (a[..., 0] < 40)).sum() > 0  # ridge lift is drawn (and visible)
+    w.overlay_map_box.setChecked(False)
+    w._map_t = -1
+    w.render_frame()
+    assert not w._map_actor.GetVisibility()
+    w.close()

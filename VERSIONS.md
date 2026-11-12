@@ -2,6 +2,25 @@
 
 What each version does, and the problems known in it (with where they were fixed). The app shows the same notes in its update banner and **Help → Version history**.
 
+## 0.15.0 — 2026-11-11
+
+**Ridge soaring, an on-screen mini-map, a richer cockpit.**
+
+What it does:
+
+- Ridge lift from the wind: air blowing up a slope rises (and sinks in the lee), strongest within a band above the slope set by the size of the hills; works on every map.
+- Show lift on the map: ridge lift (green) and sink (red) for the current wind, alongside the thermals.
+- A mini-map in the corner of the 3-D view that stays visible in full screen and the cockpit (switchable).
+- Cockpit: canopy / windscreen frame, and an information column - IAS / TAS, ground speed, wind (with an arrow relative to the nose), netto for gliders, distance and bearing home, final glide margin, airbrakes / flaps, gear, engine.
+
+Known problems:
+
+- Ridge lift is modest over the Hampshire downs (well under 1 m/s at 100 m in a 12 m/s wind); the Innsbruck and Queenstown maps have real ridges.
+- Final glide assumes 80 % of best glide in still air (no wind correction yet).
+- Glide performance is a little pessimistic (Duo Discus T ~38:1, real ~45:1; K-21 32:1, real 34:1).
+- Sustainer engines start at once; winch launches probably reach a little too high; grabbing a 3-D handle doesn't select its part.
+- The San Francisco Bay 40 km standard map package is still missing.
+
 ## 0.14.1 — 2026-11-11
 
 **Presets you can actually find.**

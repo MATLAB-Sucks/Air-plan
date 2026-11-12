@@ -537,7 +537,8 @@ class FlightSimulator:
             else:
                 self.release("released at the top")
         p_ = self.state[0:3]
-        self.updraft = self.updraft_at(p_[0], p_[1], -p_[2]) if self.thermals else 0.0
+        self.updraft = (self.updraft_at(p_[0], p_[1], -p_[2]) if self.thermals else 0.0) \
+            + self.ridge_lift_at(p_[0], p_[1], -p_[2])
         self._check_structure()
         self._check_crash()
         if (self.crashed or self.failure) and self.event is None:  # snapshot for the debrief
@@ -740,6 +741,50 @@ class FlightSimulator:
         rng = np.random.default_rng(seed)
         self.thermals = [(centre[0] + rng.uniform(-radius, radius), centre[1] + rng.uniform(-radius, radius),
                           rng.uniform(150, 320), rng.uniform(1.5, 4.0), rng.uniform(1300, 2100)) for _ in range(n)]
+
+    # ------------------------------------------------------------------ ridge lift
+    def _ridge_fields(self):
+        """Terrain slope at ridge scale and local relief (computed once per world)."""
+        if getattr(self, "_ridge", None) is not None:
+            return self._ridge
+        self._ridge = False
+        grid = getattr(self.terrain, "grid", None)
+        if grid is None:
+            return self._ridge
+        try:
+            from scipy.ndimage import gaussian_filter, maximum_filter, minimum_filter
+            north, east, h = grid
+            dn, de = float(north[1] - north[0]), float(east[1] - east[0])
+            hs = gaussian_filter(np.asarray(h, float), sigma=max(1.0, 250.0 / dn))  # ridge-scale shape
+            gn, ge = np.gradient(hs, dn, de)
+            win = max(3, int(2000.0 / dn))
+            relief = maximum_filter(hs, size=win) - minimum_filter(hs, size=win)
+            self._ridge = (north[0], east[0], dn, de, gn, ge, np.clip(1.3 * relief, 120.0, 900.0))
+        except Exception:
+            self._ridge = False
+        return self._ridge
+
+    def ridge_lift_at(self, north: float, east: float, alt: float) -> float:
+        """Wind forced up (or down) the slope: w = wind . grad(h) at the surface, fading with height above
+        the ground over a depth set by the local relief (bigger hills work higher up).  Lee slopes sink."""
+        wind = self.wind_ned
+        if abs(wind[0]) + abs(wind[1]) < 0.5:
+            return 0.0
+        f = self._ridge_fields()
+        if not f:
+            return 0.0
+        n0, e0, dn, de, gn, ge, depth = f
+        i, j = (north - n0) / dn, (east - e0) / de
+        if not (0 <= i < gn.shape[0] - 1 and 0 <= j < gn.shape[1] - 1):
+            return 0.0
+        i0, j0 = int(i), int(j)
+        w_s = wind[0] * gn[i0, j0] + wind[1] * ge[i0, j0]  # m/s up the slope (positive on the windward face)
+        H = float(depth[i0, j0])
+        agl = alt - self.ground(north, east)
+        if agl < 0:
+            return 0.0
+        fade = math.exp(-agl / H) * min(1.0, 0.3 + agl / 60.0)  # weakest right at the surface, gone well above
+        return float(np.clip(w_s * 1.4 * fade, -4.0, 6.0))
 
     def updraft_at(self, north: float, east: float, alt: float) -> float:
         """Rising air (m/s): thermal cores with a sinking ring, fading under cloud base; gentle sink between."""

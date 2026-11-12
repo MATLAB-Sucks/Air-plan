@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.0
+- **Ridge soaring:** wind blowing up a slope gives lift (and sink in the lee), on every map.
+- **Lift on the map:** ridge lift (green) and sink (red) for the current wind, with the thermals.
+- **Mini-map in the 3-D view** that stays on screen in full screen and the cockpit.
+- **Cockpit:** canopy / windscreen frame and an information column (IAS / TAS, ground speed, wind,
+  netto, distance and bearing home, final glide, airbrakes / flaps, gear, engine).
+
 ## 0.14.1
 - **Presets you can find:** File → New plane from preset (airliner, stunt plane, 18 m glider, K-21,
   Duo Discus T), glider preset buttons on the Mission page, and a "Start from a preset" list in the
